@@ -48,16 +48,32 @@ Browser ──mic 16kHz PCM (AudioWorklet)──▶  Node relay ──▶ Gemini
 - It's **push-to-talk**: the worklet buffers your speech and flushes the tail on
   release, so nothing gets clipped.
 
+## Which Gemini APIs it uses
+
+All via the **Gemini Developer API** (a Google AI Studio key + the `@google/genai`
+SDK) — **not** Vertex AI:
+
+- **Live API** (WebSocket), model `gemini-2.5-flash-native-audio-latest` — the two
+  real-time voice sessions, with **Google Search grounding** enabled.
+- **`generateContent`**, model `gemini-2.5-flash` — summarizes each session into
+  your saved profile.
+
 ## Requirements
 
-- Node.js 18+ (you have 24 ✓)
+- Node.js 18+
 - **Google Chrome** (or another Chromium browser) for the microphone + AudioWorklet
-- A Gemini API key in `.env` as `GEMINI_API_KEY` (already set ✓)
+- A free **Gemini API key** from [Google AI Studio](https://aistudio.google.com/apikey)
+
+## Setup
+
+```bash
+npm install
+cp .env.example .env     # then open .env and paste your GEMINI_API_KEY
+```
 
 ## Run
 
 ```bash
-npm install        # already done
 npm start
 ```
 
