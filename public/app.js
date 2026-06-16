@@ -177,6 +177,16 @@ function addBubble(cls, who) {
   const body = document.createElement('span');
   body.className = 'body bubble-inner';
   el.appendChild(body);
+
+  // The user side is Gemini's input transcription, which is rougher than what
+  // the model actually hears — label it so it's clearly not an exact record.
+  if (who === 'You') {
+    const note = document.createElement('span');
+    note.className = 'approx-note';
+    note.textContent = '≈ rough transcript';
+    el.appendChild(note);
+  }
+
   transcriptEl.appendChild(el);
   transcriptEl.scrollTop = transcriptEl.scrollHeight;
   return el;

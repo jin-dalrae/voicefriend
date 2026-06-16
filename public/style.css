@@ -455,6 +455,14 @@ main {
 
 .bubble.user {
   align-self: flex-end;
+  text-align: right;
+}
+
+.approx-note {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  opacity: 0.45;
 }
 
 .bubble.user .bubble-inner {
