@@ -63,11 +63,12 @@ button {
   flex-direction: column;
 }
 
-/* The flex rule above outranks the UA [hidden] rule, so the toggled-off
-   screen would otherwise stay visible. Restore hidden for both screens. */
-.welcome[hidden],
-.call[hidden] {
-  display: none;
+/* Several components set `display` (flex/inline-flex), which outranks the UA
+   `[hidden]` rule and leaves "hidden" elements visible — this bit the call
+   screen, the start button, and others. Make the hidden attribute authoritative
+   everywhere so toggling `.hidden` in JS always works. */
+[hidden] {
+  display: none !important;
 }
 
 .welcome {

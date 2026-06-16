@@ -68,6 +68,7 @@ export async function verifyFirebaseIdToken(token, { required = REQUIRE_FIREBASE
   return {
     uid: decoded.uid,
     email: decoded.email || null,
+    name: decoded.name || null,
     anonymous: false,
   };
 }

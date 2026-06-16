@@ -313,16 +313,25 @@ Everything else (all code, Firestore rules, local emulator testing) is automated
   - Note: hosting assets cache for 1h (Firebase default); returning visitors may
     see the old build until revalidation.
 
+- [x] Phase 1 — Auth + multi-tenant Firestore-backed relay (shipped):
+  - sign-in is now **required**; relay sends `need_auth` and opens no Live
+    session until the in-band `{type:'auth'}` token verifies (`REQUIRE_FIREBASE_AUTH=1`)
+  - relay verifies the Firebase ID token with `firebase-admin`, then loads/creates
+    the user's Firestore record (`ensureUser`) and seeds memory from it
+  - per-user profile + session transcripts in Firestore replace local `storage.js`
+    for signed-in users; profile summary is written back on disconnect
+  - frontend gates "Start" behind sign-in, drops the optional name field, and
+    uses the account name (email-link users are asked once)
+  - verified on a no-traffic candidate revision with a test account: gate holds,
+    valid token → opener + audio, `users/{uid}` + session messages written, then
+    flipped 100% traffic to the required-auth revision
+
 ### Still left before this is a SaaS
 
 - [ ] Phase 0 remainder — real product scaffolding:
   - Stripe test-mode account/products/prices
-- [ ] Phase 1 — Auth + multi-tenant Firestore-backed relay:
-  - make browser sign-in required instead of optional
-  - Firebase ID token passed to `/ws` for signed-in users
-  - relay verifies token with `firebase-admin` in required-auth mode
-  - replace `storage.js` local disk memory/history with Firestore per-user data
-  - prove two users have isolated profile/transcript state
+- [ ] Phase 1 follow-ups:
+  - prove two users have fully isolated profile/transcript state (spot-checked, not exhaustive)
 - [ ] Phase 2 — Onboarding + coach customization UI:
   - React + Vite frontend using the applied `talk2me-app.html` design system
   - onboarding flow

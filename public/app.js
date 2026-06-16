@@ -1,4 +1,4 @@
-import { getCurrentIdToken, initAuthUi } from './firebase-client.js';
+import { getCurrentIdToken, getDisplayName, initAuthUi } from './firebase-client.js';
 
 // ---- websocket ---------------------------------------------------------------
 const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -20,7 +20,9 @@ async function connect() {
   ws.onmessage = (ev) => handleServer(JSON.parse(ev.data));
 }
 
-window.addEventListener('talk2me:auth-changed', () => {
+window.addEventListener('talk2me:auth-changed', (e) => {
+  signedIn = Boolean(e.detail?.signedIn);
+  updateGate();
   // Auth is sent as an in-band message over the socket, so an auth change never
   // requires a new connection — just push the current token over the live one.
   // The old code closed the socket on every auth event, including Firebase's
@@ -41,12 +43,17 @@ function handleServer(m) {
     case 'ready':
       wsReady = true;
       if (!started) {
-        startBtn.hidden = false;
-        setStatus('Ready when you are');
+        updateGate();
       } else {
         talkBtn.disabled = false;
         setStatus('Ready — tap to talk');
       }
+      break;
+    case 'need_auth':
+      // Relay won't open the coaches until a verified token arrives. If we're
+      // signed in, (re)send it; otherwise the gate shows the sign-in prompt.
+      if (signedIn) sendAuthIfAvailable();
+      else updateGate();
       break;
     case 'speaker':
       currentSpeaker = m.name;
@@ -94,16 +101,36 @@ const statusEl = document.getElementById('status');
 const talkBtn = document.getElementById('talk');
 const startBtn = document.getElementById('start');
 const backBtn = document.getElementById('back');
-const firstNameInput = document.getElementById('first-name');
 const nameInline = document.getElementById('name-inline');
+const welcomeHint = document.getElementById('welcome-hint');
 
 let currentSpeaker = null;
 let userBubble = null;
 let respBubble = null;
 let started = false;
 let wsReady = false;
+let signedIn = false;
 
 initAuthUi();
+updateGate();
+
+// Welcome-screen gate: require sign-in before a session can start. The name now
+// comes from the account, not a per-visit field.
+function updateGate() {
+  if (started) return;
+  if (!signedIn) {
+    startBtn.hidden = true;
+    if (welcomeHint) welcomeHint.textContent = 'Sign in above to start practicing.';
+    return;
+  }
+  if (wsReady) {
+    startBtn.hidden = false;
+    if (welcomeHint) welcomeHint.textContent = 'Luc & Jeenie will ask you something to kick things off';
+  } else {
+    startBtn.hidden = true;
+    if (welcomeHint) welcomeHint.textContent = 'Connecting…';
+  }
+}
 
 async function sendAuthIfAvailable() {
   if (ws?.readyState !== WebSocket.OPEN) return;
@@ -113,8 +140,8 @@ async function sendAuthIfAvailable() {
 
 // First gesture: unlock audio, prime the mic, and ask the coaches to open.
 startBtn.addEventListener('click', async () => {
-  const firstName = firstNameInput.value.trim();
-  nameInline.textContent = firstName ? `, ${firstName}` : '';
+  const name = getDisplayName();
+  nameInline.textContent = name ? `, ${name}` : '';
   welcomeEl.hidden = true;
   callEl.hidden = false;
   startBtn.hidden = true;
@@ -133,10 +160,6 @@ startBtn.addEventListener('click', async () => {
     ws.send(JSON.stringify({ type: 'begin' }));
     started = true;
   }
-});
-
-firstNameInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !startBtn.hidden) startBtn.click();
 });
 
 backBtn.addEventListener('click', () => {

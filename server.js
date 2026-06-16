@@ -6,6 +6,7 @@ import { GoogleGenAI, Modality } from '@google/genai';
 import { MODEL, VOICES, PORT } from './config.js';
 import { buildSystemInstruction, getStarter } from './prompt.js';
 import { loadProfile, saveProfile, profileContext, appendTranscript } from './storage.js';
+import { ensureUser, getUserProfile, saveUserProfile, startSession, appendSessionMessage } from './db.js';
 import { authenticateWebSocketRequest, verifyFirebaseIdToken, REQUIRE_FIREBASE_AUTH } from './auth.js';
 
 const LOG_TRANSCRIPTS = process.env.LOG_TRANSCRIPTS === '1'; // set LOG_TRANSCRIPTS=1 to also print to console
@@ -60,8 +61,42 @@ class Conversation {
     this.transcript = []; // shared history: { speaker: 'You'|'Luc'|'Jeenie', text }
     this.seen = { Luc: 0, Jeenie: 0 }; // how far each coach has been caught up
     this.greeted = false;
-    this.profile = REMEMBER ? loadProfile() : null; // what we remember about the user
-    this.connectAll();
+    this.profile = null; // what we remember about the user
+    this.authed = false;
+    this.sessionId = null;
+
+    if (!REQUIRE_FIREBASE_AUTH) {
+      // Dev/local: anonymous, local-file memory, open sessions right away.
+      this.profile = REMEMBER ? loadProfile() : null;
+      this.connectAll();
+    } else if (identity.uid) {
+      // A non-browser client identified via Bearer header — proceed authed.
+      this.startAuthed(identity);
+    } else {
+      // Browser: can't send an auth header on a WebSocket, so wait for the
+      // in-band {type:'auth'} message before opening (and paying for) sessions.
+      this.send({ type: 'need_auth', message: 'Sign in to start.' });
+    }
+  }
+
+  // Verified sign-in: load (or create) the user's Firestore record, seed memory
+  // from it, then open the Live sessions.
+  async startAuthed(identity) {
+    if (this.authed) return;
+    this.identity = identity;
+    this.authed = true;
+    this.sessionId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    try {
+      await ensureUser(identity.uid, {
+        email: identity.email,
+        profile: identity.name ? { name: identity.name } : undefined,
+      });
+      this.profile = (await getUserProfile(identity.uid)) || (identity.name ? { name: identity.name } : null);
+      await startSession(identity.uid, this.sessionId, { mode: this.mode });
+    } catch (e) {
+      console.error('startAuthed: Firestore load failed:', e?.message || e);
+    }
+    await this.connectAll();
   }
 
   send(obj) {
@@ -142,7 +177,17 @@ class Conversation {
       const entries = [];
       if (userText) entries.push({ speaker: 'You', text: userText });
       if (respText) entries.push({ speaker: name, text: respText });
-      if (LOG_TO_FILE) appendTranscript(entries);
+      if (LOG_TO_FILE) {
+        if (this.identity?.uid && this.sessionId) {
+          for (const e of entries) {
+            appendSessionMessage(this.identity.uid, this.sessionId, e).catch((err) =>
+              console.error('transcript write failed:', err?.message || err),
+            );
+          }
+        } else {
+          appendTranscript(entries);
+        }
+      }
       this.transcript.push(...entries);
       this.seen[name] = this.transcript.length; // responder has heard everything
       this.lastSpeaker = name;
@@ -187,7 +232,12 @@ class Conversation {
         contents: `Current user profile JSON:\n${JSON.stringify(current)}\n\nLatest conversation (You = the user; the others are AI coaches):\n${convo}\n\nReturn an UPDATED user profile as JSON with exactly these fields: name (string), summary (one or two sentences), goals (array of strings), interests (array of strings), facts (array of short strings). Merge in durable, genuine facts about the USER only — never facts about the coaches. Keep arrays short and deduplicated. Output JSON only.`,
         config: { responseMimeType: 'application/json' },
       });
-      saveProfile(JSON.parse(res.text));
+      const updated = JSON.parse(res.text);
+      if (this.identity?.uid) {
+        await saveUserProfile(this.identity.uid, updated); // per-user memory in Firestore
+      } else {
+        saveProfile(updated); // anonymous/dev: local file
+      }
       console.log('  ✎ remembered this session');
     } catch (e) {
       console.error('profile update failed:', e?.message || e);
@@ -300,12 +350,22 @@ class Conversation {
       return;
     }
 
+    let identity;
     try {
-      this.identity = await verifyFirebaseIdToken(token, { required: true });
-      this.send({ type: 'auth_ok' });
+      identity = await verifyFirebaseIdToken(token, { required: true });
     } catch (err) {
       console.warn(`Firebase auth message failed: ${err?.message || err}`);
       this.send({ type: 'auth_error', message: 'Sign-in could not be verified.' });
+      return;
+    }
+
+    this.send({ type: 'auth_ok' });
+    if (REQUIRE_FIREBASE_AUTH && !this.authed) {
+      // First verified sign-in on this socket: load the user and open sessions.
+      await this.startAuthed(identity);
+    } else {
+      // Already running (or dev anonymous mode) — just record the latest identity.
+      this.identity = identity;
     }
   }
 
@@ -364,13 +424,15 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
 
 wss.on('connection', async (browser, req) => {
-  let identity;
+  // Browsers can't set an Authorization header on a WebSocket, so identity comes
+  // from the in-band {type:'auth'} message. Honor a Bearer header if a non-browser
+  // client sends one; otherwise start anonymous and let the Conversation gate on
+  // the auth message when REQUIRE_FIREBASE_AUTH is on.
+  let identity = { uid: null, anonymous: true };
   try {
     identity = await authenticateWebSocketRequest(req);
-  } catch (err) {
-    browser.send(JSON.stringify({ type: 'error', message: 'Sign in required.' }));
-    browser.close(1008, 'auth_required');
-    return;
+  } catch {
+    identity = { uid: null, anonymous: true };
   }
 
   const conv = new Conversation(browser, identity);

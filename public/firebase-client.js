@@ -12,6 +12,7 @@ import {
   signInWithEmailLink,
   signInWithPopup,
   signOut,
+  updateProfile,
 } from 'https://www.gstatic.com/firebasejs/12.14.0/firebase-auth.js';
 
 const app = initializeApp(window.TALK2ME_FIREBASE_CONFIG);
@@ -42,6 +43,7 @@ if (isSignInWithEmailLink(auth, window.location.href)) {
       .then(() => {
         window.localStorage.removeItem('talk2me.emailForSignIn');
         window.history.replaceState({}, document.title, window.location.pathname);
+        return ensureDisplayName(auth.currentUser); // email-link has no name; ask once
       })
       .catch((err) => setAuthStatus(err.message));
   }
@@ -85,6 +87,27 @@ export function initAuthUi() {
 
 export async function getCurrentIdToken() {
   return currentUser ? currentUser.getIdToken() : '';
+}
+
+export function getDisplayName() {
+  return currentUser?.displayName || null;
+}
+
+// Google provides a name automatically; email-link sign-in does not, so ask once
+// and store it on the account (the relay reads it from the verified token's name
+// claim and saves it as the user's profile name).
+async function ensureDisplayName(user) {
+  if (!user || user.displayName) return;
+  const name = (window.prompt('What should we call you?') || '').trim();
+  if (!name) return;
+  try {
+    await updateProfile(user, { displayName: name });
+    await user.getIdToken(true); // force refresh so the token carries the name
+    renderAuthState();
+    window.dispatchEvent(new CustomEvent('talk2me:auth-changed', { detail: { signedIn: true } }));
+  } catch (err) {
+    setAuthStatus(err.message);
+  }
 }
 
 function renderAuthState() {

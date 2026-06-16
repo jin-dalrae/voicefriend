@@ -32,12 +32,16 @@ Implemented:
 - Welcome and in-call screens toggle cleanly (driven by the `hidden` attribute).
 - Firebase Admin scaffolding in the relay.
 - Firestore database, rules, and indexes in `talk2me-e90b1`.
+- **Required sign-in (Phase 1):** the relay verifies a Firebase ID token (sent
+  in-band over the socket) before opening any Live session — anonymous use is
+  disabled in production.
+- **Per-user memory + transcripts in Firestore:** signed-in users get their own
+  `users/{uid}` profile and session transcripts (replaces local `storage.js`).
+  Coaches greet you by your account name and remember you across sessions.
 
 Still in progress:
 
-- Sign-in is available, but not yet required.
-- The relay still supports anonymous sessions.
-- Memory/history still use local `storage.js`; Firestore-backed per-user memory is next.
+- Onboarding + per-user coach customization (Phase 2) is not built yet.
 - Metering and hard caps are not implemented yet, so this should not be opened broadly.
 - Stripe billing is not implemented yet.
 
