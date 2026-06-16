@@ -299,6 +299,19 @@ Everything else (all code, Firestore rules, local emulator testing) is automated
   - synthesized speech sample streams through `/ws`
   - coach response returns audio and transcript
   - tokens are not sent in WebSocket URLs
+- [x] Fixed two frontend bugs on `talk-to-me1.web.app` (commit `92130d2`):
+  - WebSocket reconnect churn: Firebase's initial `onAuthStateChanged` no longer
+    tears down the fresh socket. Auth is re-sent in-band over the open socket
+    instead, removing the "Disconnected. Reconnecting…" flash and the throwaway
+    second pair of Gemini Live sessions opened on every page load.
+  - Overlapping screens: `.welcome, .call { display: flex }` was overriding the
+    `[hidden]` attribute, so both screens rendered at once. Added
+    `.welcome[hidden], .call[hidden] { display: none }` so the welcome and
+    in-call screens toggle correctly.
+  - Verified live against the deployed relay with a clean-cache browser: clean
+    single connection (no flash), and the two screens toggle as expected.
+  - Note: hosting assets cache for 1h (Firebase default); returning visitors may
+    see the old build until revalidation.
 
 ### Still left before this is a SaaS
 

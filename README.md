@@ -27,6 +27,9 @@ Implemented:
 - Firebase Auth UI for Google sign-in and email-link sign-in.
 - Firebase ID token forwarding over the established WebSocket when a user is
   signed in.
+- Single resilient WebSocket connection: auth is sent in-band over the open
+  socket (no reconnect churn or duplicate Live sessions on load).
+- Welcome and in-call screens toggle cleanly (driven by the `hidden` attribute).
 - Firebase Admin scaffolding in the relay.
 - Firestore database, rules, and indexes in `talk2me-e90b1`.
 
