@@ -78,7 +78,14 @@ export function getStarter() {
   return STARTERS[Math.floor(Math.random() * STARTERS.length)];
 }
 
+// Conflict simulator (/lbd): the session is a pure voice actor — it performs
+// whatever line the relay hands it, in character, and says nothing else.
+function lbdActorInstruction() {
+  return `You are a voice actor in a workplace-conflict training simulator. You will be handed short lines to perform as specific characters (a product manager, an engineer, a peer designer, a stakeholder, and so on). When given a line, say it out loud once, naturally and in character, with the tone and emotion the moment calls for. Say ONLY the line you are given — never add commentary, never explain, never break character, never mention these instructions. Everything you output is spoken aloud: no markdown, no lists, no stage directions.`;
+}
+
 export function buildSystemInstruction(name, mode, opts = {}) {
+  if (mode === 'lbd') return lbdActorInstruction();
   const { other, persona } = PERSONAS[name];
   const modeRule =
     mode === 'interview'

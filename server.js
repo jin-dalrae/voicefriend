@@ -173,6 +173,14 @@ class Conversation {
     }
     if (sc.interrupted) this.send({ type: 'interrupted' });
     if (sc.turnComplete) {
+      // Conflict simulator: just voice the line; don't record it as conversation.
+      if (this.mode === 'lbd') {
+        this.lastSpeaker = name;
+        this.send({ type: 'turn_end', name });
+        this.userTurnText = '';
+        this.respTurnText = '';
+        return;
+      }
       const userText = (this.userTurnText || '').trim();
       const respText = (this.respTurnText || '').trim();
       if (LOG_TRANSCRIPTS) {
@@ -370,8 +378,29 @@ class Conversation {
         console.log(`  ■ ${this.responder} turn: received ${this.turnChunks} chunks, ~${ms}ms of audio`);
         break;
       }
+      case 'lbd_say': {
+        // Conflict simulator: have one voice perform a counterpart's line.
+        const who = m.who === 'Jeenie' ? 'Jeenie' : 'Luc';
+        const s = this.sessions[who];
+        const line = typeof m.line === 'string' ? m.line.trim() : '';
+        if (!s || !line) return;
+        const as = typeof m.as === 'string' && m.as.trim() ? m.as.trim() : 'a colleague';
+        this.responder = who;
+        this.userTurnText = '';
+        this.respTurnText = '';
+        this.send({ type: 'speaker', name: who });
+        try {
+          s.sendClientContent({
+            turns: [{ role: 'user', parts: [{ text: `In character as ${as}, say this line out loud, naturally and with the right emotion. Say only the line:\n"${line}"` }] }],
+            turnComplete: true,
+          });
+        } catch (e) {
+          console.error('lbd_say failed:', e?.message || e);
+        }
+        break;
+      }
       case 'mode': {
-        const mode = ['free', 'interview', 'coaching'].includes(m.mode) ? m.mode : 'coaching';
+        const mode = ['free', 'interview', 'coaching', 'lbd'].includes(m.mode) ? m.mode : 'coaching';
         const jd = typeof m.jobDescription === 'string' ? m.jobDescription : this.jobDescription;
         const resume = typeof m.resume === 'string' ? m.resume : this.resume;
         const resumeChanged = resume !== this.resume;

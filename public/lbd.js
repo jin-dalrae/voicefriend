@@ -1,3 +1,5 @@
+import { getCurrentIdToken, initAuthUi } from './firebase-client.js';
+
 // Conflict & Feedback Simulator — a leadership "flight simulator" for lateral
 // leadership (influence without authority). Pick a scenario and a 1:1 or 1:2
 // setup; the counterpart(s) voice each situation; you pick an approach mapped to
@@ -287,9 +289,104 @@ function stopSpeaking() {
   window.speechSynthesis?.cancel();
 }
 
+// ---- live voice via the talk2me relay (Gemini Live) --------------------------
+// Signed-in users hear Luc & Jeenie voice the counterparts through the relay's
+// 'lbd' mode; otherwise we fall back to the browser speech above.
+const wsProto = location.protocol === 'https:' ? 'wss' : 'ws';
+let ws = null;
+let lbdReady = false;
+let modeSent = false;
+const sayQueue = [];
+let speaking = false;
+
+function connectVoice() {
+  let url;
+  try { url = new URL(window.TALK2ME_WS_URL || `${wsProto}://${location.host}/ws`); } catch { return; }
+  ws = new WebSocket(url);
+  ws.onopen = () => sendAuth();
+  ws.onclose = () => { lbdReady = false; modeSent = false; speaking = false; setTimeout(connectVoice, 2500); };
+  ws.onmessage = (ev) => { let m; try { m = JSON.parse(ev.data); } catch { return; } handleVoice(m); };
+}
+async function sendAuth() {
+  if (ws?.readyState !== WebSocket.OPEN) return;
+  const token = await getCurrentIdToken();
+  if (token) ws.send(JSON.stringify({ type: 'auth', token }));
+}
+function handleVoice(m) {
+  switch (m.type) {
+    case 'ready':
+      if (!modeSent) { modeSent = true; ws.send(JSON.stringify({ type: 'mode', mode: 'lbd' })); }
+      else { lbdReady = true; flushQueue(); }
+      break;
+    case 'audio': playPcm(bytesFromBase64(m.data)); break;
+    case 'turn_end': speaking = false; flushQueue(); break;
+    default: break; // need_auth / auth_error / auth_ok → stay on browser fallback
+  }
+}
+function liveReady() { return lbdReady && ws?.readyState === WebSocket.OPEN; }
+
+function voiceLine(which, as, line) {
+  if (!voiceOn || !line) return;
+  if (liveReady()) {
+    sayQueue.push({ who: which === 'B' ? 'Jeenie' : 'Luc', as, line });
+    flushQueue();
+  } else {
+    say(line, which); // browser fallback when not signed in / not connected
+  }
+}
+function flushQueue() {
+  if (speaking || !liveReady() || !sayQueue.length) return;
+  const item = sayQueue.shift();
+  speaking = true;
+  ws.send(JSON.stringify({ type: 'lbd_say', who: item.who, as: item.as, line: item.line }));
+}
+function stopVoice() {
+  sayQueue.length = 0;
+  speaking = false;
+  stopSpeaking();
+  stopPlayback();
+}
+
+// 24kHz PCM playback (ported from the main app's audio path)
+let playCtx = null;
+let playHead = 0;
+let liveSources = [];
+function ensurePlayCtx() {
+  if (!playCtx) playCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+  if (playCtx.state === 'suspended') playCtx.resume();
+  return playCtx;
+}
+function playPcm(bytes) {
+  const ctx = ensurePlayCtx();
+  const int16 = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength >> 1);
+  const f32 = new Float32Array(int16.length);
+  for (let i = 0; i < int16.length; i++) f32[i] = int16[i] / 32768;
+  const buf = ctx.createBuffer(1, f32.length, 24000);
+  buf.getChannelData(0).set(f32);
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.connect(ctx.destination);
+  const startAt = Math.max(ctx.currentTime, playHead);
+  src.start(startAt);
+  playHead = startAt + buf.duration;
+  liveSources.push(src);
+  src.onended = () => { liveSources = liveSources.filter((s) => s !== src); };
+}
+function stopPlayback() {
+  for (const s of liveSources) { try { s.stop(); } catch {} }
+  liveSources = [];
+  if (playCtx) playHead = playCtx.currentTime;
+}
+function bytesFromBase64(b64) {
+  const bin = atob(b64);
+  const a = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i);
+  return a;
+}
+
 // ---- picker ------------------------------------------------------------------
 function renderPicker() {
-  stopSpeaking();
+  stopVoice();
   show(pickerEl);
   const cards = SCENARIOS.map(
     (s) => `
@@ -321,6 +418,7 @@ function renderPicker() {
 
 // ---- simulator ---------------------------------------------------------------
 function start(id) {
+  ensurePlayCtx(); // unlock audio inside the click gesture (for live voice)
   scenario = SCENARIOS.find((s) => s.id === id);
   nodeIndex = 0;
   picks = [];
@@ -365,7 +463,7 @@ function renderNode() {
   $('lbd-quit').addEventListener('click', renderPicker);
   $('lbd-mute').addEventListener('click', () => {
     voiceOn = !voiceOn;
-    if (!voiceOn) stopSpeaking();
+    if (!voiceOn) stopVoice();
     $('lbd-mute').textContent = voiceOn ? '🔊' : '🔇';
     if (voiceOn) speakNode(node, two);
   });
@@ -377,16 +475,18 @@ function renderNode() {
 }
 
 function speakNode(node, two) {
-  stopSpeaking();
-  say(node.line, 'A');
-  if (two) setTimeout(() => say(node.allyLine, 'B'), 100);
+  stopVoice();
+  const cp = scenario.counterpart;
+  const ally = scenario.ally;
+  voiceLine('A', `${cp.name}, ${cp.role}`, node.line);
+  if (two) voiceLine('B', `${ally.name}, ${ally.role}`, node.allyLine);
 }
 
 function choose(i) {
   const node = scenario.nodes[nodeIndex];
   const c = node.choices[i];
   picks.push({ f: c.f, rating: c.rating });
-  stopSpeaking();
+  stopVoice();
 
   simEl.querySelectorAll('.lbd-choice').forEach((b, idx) => {
     b.disabled = true;
@@ -416,7 +516,7 @@ function ratingLabel(r) {
 
 // ---- debrief -----------------------------------------------------------------
 function renderDebrief() {
-  stopSpeaking();
+  stopVoice();
   show(debriefEl);
   const strong = picks.filter((p) => p.rating === 'strong').length;
   const counts = {};
@@ -462,4 +562,12 @@ function show(el) {
   window.scrollTo(0, 0);
 }
 
+// ---- boot --------------------------------------------------------------------
+initAuthUi(); // wires the sign-in / sign-out buttons in the header
+window.addEventListener('talk2me:auth-changed', () => {
+  // On sign-in, push the token over the live socket so the relay opens the voices.
+  if (ws?.readyState === WebSocket.OPEN) sendAuth();
+  else connectVoice();
+});
+connectVoice(); // best-effort; voice goes live once you're signed in
 renderPicker();
