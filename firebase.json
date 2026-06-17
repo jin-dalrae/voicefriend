@@ -9,6 +9,10 @@
     ],
     "rewrites": [
       {
+        "source": "/lbd",
+        "destination": "/lbd.html"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

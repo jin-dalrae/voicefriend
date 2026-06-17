@@ -1,0 +1,224 @@
+/* Conflict & Feedback Simulator — leans on the talk2me design tokens in style.css */
+
+.lbd-body {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.lbd-wrap {
+  max-width: 660px;
+  margin: 0 auto;
+  padding: 32px 20px 64px;
+}
+
+.lbd-screen {
+  animation: lbd-in 0.25s ease-out;
+}
+@keyframes lbd-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+.lbd-h1 {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 0 0 8px;
+  background: var(--grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.lbd-sub {
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.5;
+  margin: 0 0 20px;
+}
+.lbd-foot {
+  margin-top: 22px;
+  color: var(--faint);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* segmented 1:1 / 1:2 */
+.lbd-seg {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.lbd-seg-btn {
+  flex: 1;
+  padding: 11px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--outline);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.lbd-seg-btn.is-on {
+  color: #fff;
+  border-color: transparent;
+  background: var(--grad);
+}
+
+/* scenario cards */
+.lbd-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.lbd-card {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.05s;
+}
+.lbd-card:hover { border-color: var(--luc); }
+.lbd-card:active { transform: scale(0.995); }
+.lbd-card strong { font-size: 16px; }
+.lbd-card span { color: var(--muted); font-size: 13px; line-height: 1.45; }
+
+/* sim chrome */
+.lbd-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+  gap: 12px;
+}
+.lbd-progress { color: var(--faint); font-size: 12px; font-weight: 700; }
+.lbd-back, .lbd-mute {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px;
+}
+.lbd-mute { font-size: 18px; }
+
+/* counterpart lines */
+.lbd-line {
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+.lbd-who { display: block; font-size: 12px; font-weight: 800; margin-bottom: 4px; }
+.lbd-line p { margin: 0; font-size: 15px; line-height: 1.5; }
+
+.lbd-prompt {
+  margin: 16px 0 12px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* choices */
+.lbd-choices { display: flex; flex-direction: column; gap: 10px; }
+.lbd-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--outline);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.12s;
+}
+.lbd-choice:hover:not(:disabled) { border-color: var(--luc); }
+.lbd-choice:disabled { cursor: default; opacity: 0.85; }
+.lbd-choice.is-picked { border-color: #fff; box-shadow: 0 0 0 1px #fff inset; opacity: 1; }
+.lbd-choice-text { font-size: 14px; line-height: 1.45; }
+.lbd-choice.rating-strong.is-picked { border-color: var(--success); box-shadow: 0 0 0 1px var(--success) inset; }
+.lbd-choice.rating-mixed.is-picked { border-color: var(--listening); box-shadow: 0 0 0 1px var(--listening) inset; }
+.lbd-choice.rating-weak.is-picked { border-color: var(--recording); box-shadow: 0 0 0 1px var(--recording) inset; }
+
+/* framework tags */
+.lbd-tag {
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  letter-spacing: 0.02em;
+}
+.lbd-Fighter { color: #e2585b; }
+.lbd-Negotiator { color: #3fb37f; }
+.lbd-Diplomat { color: #2f80ed; }
+.lbd-Avoider { color: #8b90a0; }
+.lbd-PeoplePleaser { color: #c65d9e; }
+.lbd-SBI, .lbd-AID { color: #d8a23a; }
+.lbd-RadicalCandor { color: #7b6ae0; }
+.lbd-RuinousEmpathy, .lbd-ObnoxiousAggression { color: #8b90a0; }
+
+/* result (consequence + coaching) */
+.lbd-result {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+.lbd-ratingbar {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 4px 10px;
+  border-radius: 999px;
+  margin-bottom: 10px;
+}
+.lbd-ratingbar.rating-strong { background: rgba(63,179,127,0.18); color: var(--success); }
+.lbd-ratingbar.rating-mixed { background: rgba(242,193,78,0.18); color: var(--listening); }
+.lbd-ratingbar.rating-weak { background: var(--recording-bg); color: var(--recording); }
+.lbd-consequence, .lbd-coaching { margin: 0 0 10px; font-size: 14px; line-height: 1.5; }
+.lbd-consequence strong { color: var(--text); }
+.lbd-coaching { color: var(--muted); }
+.lbd-coaching strong { color: var(--text); }
+
+/* buttons */
+.lbd-next {
+  margin-top: 4px;
+  padding: 11px 18px;
+  border-radius: 999px;
+  border: none;
+  background: var(--grad);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.lbd-next.ghost { background: var(--panel); border: 1px solid var(--outline); color: var(--text); }
+
+/* debrief */
+.lbd-score { font-size: 16px; font-weight: 700; margin: 4px 0 8px; }
+.lbd-recap { list-style: none; padding: 0; margin: 14px 0; display: flex; flex-direction: column; gap: 8px; }
+.lbd-recap li { font-size: 13px; }
+.lbd-recap em { color: var(--muted); font-style: normal; margin: 0 6px; }
+.lbd-mini { color: var(--faint); }
+.lbd-takeaway {
+  margin-top: 8px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.lbd-actions { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
