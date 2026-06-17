@@ -6,7 +6,7 @@ import { GoogleGenAI, Modality } from '@google/genai';
 import { MODEL, VOICES, PORT } from './config.js';
 import { buildSystemInstruction, getStarter } from './prompt.js';
 import { loadProfile, saveProfile, profileContext, appendTranscript } from './storage.js';
-import { ensureUser, getUserProfile, saveUserProfile, startSession, appendSessionMessage } from './db.js';
+import { ensureUser, getUserDoc, saveUserProfile, saveUserResume, startSession, appendSessionMessage } from './db.js';
 import { authenticateWebSocketRequest, verifyFirebaseIdToken, REQUIRE_FIREBASE_AUTH } from './auth.js';
 
 const LOG_TRANSCRIPTS = process.env.LOG_TRANSCRIPTS === '1'; // set LOG_TRANSCRIPTS=1 to also print to console
@@ -63,6 +63,7 @@ class Conversation {
     this.greeted = false;
     this.profile = null; // what we remember about the user
     this.jobDescription = null; // interview-drill mode: pasted job description
+    this.resume = null; // interview-drill mode: the user's saved resume
     this.authed = false;
     this.sessionId = null;
 
@@ -92,11 +93,15 @@ class Conversation {
         email: identity.email,
         profile: identity.name ? { name: identity.name } : undefined,
       });
-      this.profile = (await getUserProfile(identity.uid)) || (identity.name ? { name: identity.name } : null);
+      const doc = await getUserDoc(identity.uid);
+      this.profile = doc?.profile || (identity.name ? { name: identity.name } : null);
+      this.resume = doc?.resume || null;
       await startSession(identity.uid, this.sessionId, { mode: this.mode });
     } catch (e) {
       console.error('startAuthed: Firestore load failed:', e?.message || e);
     }
+    // Let the client prefill saved account fields (e.g., resume for the drill).
+    this.send({ type: 'account', name: this.profile?.name || null, resume: this.resume || null });
     await this.connectAll();
   }
 
@@ -123,7 +128,7 @@ class Conversation {
         speechConfig: {
           voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICES[name] } },
         },
-        systemInstruction: buildSystemInstruction(name, this.mode, { jobDescription: this.jobDescription }),
+        systemInstruction: buildSystemInstruction(name, this.mode, { jobDescription: this.jobDescription, resume: this.resume }),
         inputAudioTranscription: {},
         outputAudioTranscription: {},
         // Let them look things up on the web mid-conversation.
@@ -368,11 +373,22 @@ class Conversation {
       case 'mode': {
         const mode = ['free', 'interview', 'coaching'].includes(m.mode) ? m.mode : 'coaching';
         const jd = typeof m.jobDescription === 'string' ? m.jobDescription : this.jobDescription;
-        const changed = mode !== this.mode || (mode === 'interview' && jd !== this.jobDescription);
+        const resume = typeof m.resume === 'string' ? m.resume : this.resume;
+        const resumeChanged = resume !== this.resume;
+        const changed =
+          mode !== this.mode ||
+          (mode === 'interview' && (jd !== this.jobDescription || resumeChanged));
         this.mode = mode;
         this.jobDescription = jd;
+        this.resume = resume;
+        // Persist the resume to the account so it's there next time.
+        if (resumeChanged && this.identity?.uid && typeof resume === 'string') {
+          saveUserResume(this.identity.uid, resume).catch((e) =>
+            console.error('resume save failed:', e?.message || e),
+          );
+        }
         if (changed) {
-          // System prompt (and the job description) changed, so re-open both
+          // System prompt (job description / resume) changed, so re-open both
           // sessions, then kick off the first interview question if entering the drill.
           this.reconnect().then(() => {
             if (this.mode === 'interview') this.beginInterview();

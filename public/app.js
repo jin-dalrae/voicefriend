@@ -90,6 +90,10 @@ function handleServer(m) {
     case 'auth_error':
       setStatus(m.message);
       break;
+    case 'account':
+      // Prefill saved fields (resume persists on the account across sessions).
+      if (m.resume && resumeInput && !resumeInput.value) resumeInput.value = m.resume;
+      break;
   }
 }
 
@@ -224,6 +228,7 @@ function setBubbleText(el, text) {
 // ---- mode toggle -------------------------------------------------------------
 const jdPanel = document.getElementById('jd-panel');
 const jdInput = document.getElementById('jd-input');
+const resumeInput = document.getElementById('resume-input');
 const jdStart = document.getElementById('jd-start');
 
 document.querySelectorAll('input[name="mode"]').forEach((r) => {
@@ -248,7 +253,8 @@ document.querySelectorAll('input[name="mode"]').forEach((r) => {
 jdStart?.addEventListener('click', () => {
   if (ws?.readyState !== 1) return;
   const jobDescription = (jdInput?.value || '').trim();
-  ws.send(JSON.stringify({ type: 'mode', mode: 'interview', jobDescription }));
+  const resume = (resumeInput?.value || '').trim();
+  ws.send(JSON.stringify({ type: 'mode', mode: 'interview', jobDescription, resume }));
   setStatus('Setting up your interview…');
   talkBtn.disabled = true;
   if (jdPanel) jdPanel.hidden = true; // collapse once the drill is starting

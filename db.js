@@ -41,6 +41,20 @@ export async function getUserProfile(uid) {
   return snap.exists ? (snap.data().profile || null) : null;
 }
 
+export async function getUserDoc(uid) {
+  const snap = await userRef(uid).get();
+  return snap.exists ? snap.data() : null;
+}
+
+// Resume lives as a top-level field, NOT inside `profile` — the session
+// summarizer rewrites `profile` wholesale and would otherwise wipe it.
+export async function saveUserResume(uid, resume) {
+  await userRef(uid).set(
+    { resume, updatedAt: FieldValue.serverTimestamp() },
+    { merge: true },
+  );
+}
+
 export async function saveUserProfile(uid, profile) {
   await userRef(uid).set(
     { profile, updatedAt: FieldValue.serverTimestamp() },
