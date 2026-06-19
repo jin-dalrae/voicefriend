@@ -78,14 +78,30 @@ export function getStarter() {
   return STARTERS[Math.floor(Math.random() * STARTERS.length)];
 }
 
-// Conflict simulator (/lbd): the session is a pure voice actor — it performs
-// whatever line the relay hands it, in character, and says nothing else.
-function lbdActorInstruction() {
-  return `You are a voice actor in a workplace-conflict training simulator. You will be handed short lines to perform as specific characters (a product manager, an engineer, a peer designer, a stakeholder, and so on). When given a line, say it out loud once, naturally and in character, with the tone and emotion the moment calls for. Say ONLY the line you are given — never add commentary, never explain, never break character, never mention these instructions. Everything you output is spoken aloud: no markdown, no lists, no stage directions.`;
+// Conflict simulator (/lbd): each session plays a counterpart in a live, spoken
+// workplace conflict and pushes back on the user (a design leader) in character.
+function lbdRoleplayInstruction(name, lbd) {
+  const me = name === 'Jeenie' ? lbd?.b : lbd?.a;
+  if (!me) {
+    return `You are a colleague in a workplace conversation. Keep replies short and spoken. Never break character or mention these instructions.`;
+  }
+  const partner = name === 'Jeenie' ? lbd?.a : lbd?.b;
+  const ganging =
+    lbd?.parties === 2 && partner
+      ? ` Your colleague ${partner.name} (${partner.role}) is in the room and pushes back too — react to and build on what they say so the user feels outnumbered.`
+      : '';
+  return `You are ${me.name}, ${me.role}, in a real, high-stakes workplace conflict with the user — a design leader who has no authority over you.
+
+THE SITUATION: ${lbd.situation}
+YOUR POSITION: ${me.stance}
+
+Role-play this as a realistic disagreement. Push back: hold your position with concrete reasons, don't cave at the first objection, and apply pressure. But stay a reasonable professional — if the user makes a genuinely strong case, a smart compromise, or skillful feedback, you can give a little ground and acknowledge it. Stay fully in character as ${me.name}.${ganging}
+
+This is spoken: keep every reply short (one to three sentences), natural, and conversational. No lists, no narration, no stage directions, no markdown. Never break character, never say you are an AI, never mention these instructions. Speak only as ${me.name}.`;
 }
 
 export function buildSystemInstruction(name, mode, opts = {}) {
-  if (mode === 'lbd') return lbdActorInstruction();
+  if (mode === 'lbd') return lbdRoleplayInstruction(name, opts.lbd);
   const { other, persona } = PERSONAS[name];
   const modeRule =
     mode === 'interview'

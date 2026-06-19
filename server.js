@@ -64,6 +64,7 @@ class Conversation {
     this.profile = null; // what we remember about the user
     this.jobDescription = null; // interview-drill mode: pasted job description
     this.resume = null; // interview-drill mode: the user's saved resume
+    this.lbd = null; // /lbd conflict simulator: { parties, a, b, situation }
     this.authed = false;
     this.sessionId = null;
 
@@ -128,7 +129,7 @@ class Conversation {
         speechConfig: {
           voiceConfig: { prebuiltVoiceConfig: { voiceName: VOICES[name] } },
         },
-        systemInstruction: buildSystemInstruction(name, this.mode, { jobDescription: this.jobDescription, resume: this.resume }),
+        systemInstruction: buildSystemInstruction(name, this.mode, { jobDescription: this.jobDescription, resume: this.resume, lbd: this.lbd }),
         inputAudioTranscription: {},
         outputAudioTranscription: {},
         // Let them look things up on the web mid-conversation.
@@ -173,8 +174,14 @@ class Conversation {
     }
     if (sc.interrupted) this.send({ type: 'interrupted' });
     if (sc.turnComplete) {
-      // Conflict simulator: just voice the line; don't record it as conversation.
+      // Conflict simulator: keep the exchange in memory for the debrief, but
+      // never persist it to the user's Firestore profile/transcript.
       if (this.mode === 'lbd') {
+        const ut = (this.userTurnText || '').trim();
+        const rt = (this.respTurnText || '').trim();
+        if (ut) this.transcript.push({ speaker: 'You', text: ut });
+        if (rt) this.transcript.push({ speaker: name, text: rt });
+        this.seen[name] = this.transcript.length;
         this.lastSpeaker = name;
         this.send({ type: 'turn_end', name });
         this.userTurnText = '';
@@ -215,6 +222,11 @@ class Conversation {
   // both stay active, never the same person 3x, with a little randomness.
   // Swap this out later for a smart router (e.g. classify the user's words).
   pickResponder() {
+    // Conflict simulator: 1:1 → the one counterpart (Luc); 1:2 → alternate.
+    if (this.mode === 'lbd') {
+      if ((this.lbd?.parties || 1) < 2) return 'Luc';
+      return this.lastSpeaker === 'Luc' ? 'Jeenie' : 'Luc';
+    }
     if (!this.lastSpeaker) return this.mode === 'coaching' ? 'Jeenie' : 'Luc';
     // Interview drill: strict turns — the OTHER coach asks the next question.
     if (this.mode === 'interview') return this.lastSpeaker === 'Luc' ? 'Jeenie' : 'Luc';
@@ -239,6 +251,7 @@ class Conversation {
 
   // After a session, fold what we learned into the saved profile (cheap text model).
   async persistProfile() {
+    if (this.mode === 'lbd') return; // roleplay isn't the user's English memory
     if (!REMEMBER || !this.transcript.length) return;
     const convo = this.transcript.map((e) => `${e.speaker}: ${e.text}`).join('\n');
     const current = this.profile || { name: '', summary: '', goals: [], interests: [], facts: [] };
@@ -313,6 +326,49 @@ class Conversation {
     }
   }
 
+  // Conflict simulator: counterpart A (Luc) opens the scene with the provocation.
+  beginLbd() {
+    this.greeted = true;
+    const a = this.lbd?.a;
+    const session = this.sessions['Luc'];
+    if (!a || !session) return;
+    this.responder = 'Luc';
+    this.lastSpeaker = 'Luc';
+    this.userTurnText = '';
+    this.respTurnText = '';
+    this.send({ type: 'speaker', name: 'Luc' });
+    const opener = a.opening ? ` Open with something close to: "${a.opening}".` : '';
+    try {
+      session.sendClientContent({
+        turns: [{ role: 'user', parts: [{ text: `Start the scene now. In character as ${a.name}, ${a.role}, open the conflict in one or two natural spoken sentences, then stop and wait for the user's reply.${opener}` }] }],
+        turnComplete: true,
+      });
+    } catch (e) {
+      console.error('beginLbd failed:', e?.message || e);
+    }
+  }
+
+  // Conflict simulator: classify the user's conflict style from the transcript
+  // and suggest how other styles would have handled the same moments.
+  async debriefLbd() {
+    const convo = this.transcript.map((e) => `${e.speaker}: ${e.text}`).join('\n');
+    if (!convo) {
+      this.send({ type: 'lbd_debrief', data: null });
+      return;
+    }
+    try {
+      const res = await this.ai.models.generateContent({
+        model: PROFILE_MODEL,
+        contents: `A user just practiced handling a workplace conflict by voice. In the transcript, "You" is the user — a design leader practicing lateral leadership (influence without authority). The others are counterparts pushing back.\n\nTranscript:\n${convo}\n\nAnalyze the USER's conflict-handling style. Conflict styles: Fighter (competes/forces), Negotiator (collaborates to a win-win), Diplomat (accommodates strategically), Avoider (withdraws/defers), People Pleaser (caves to keep peace). If they gave feedback, also note the model used: SBI, AID, or Radical Candor.\n\nReturn JSON ONLY with this exact shape:\n{"dominant":"<the user's main style>","summary":"<two sentences on how they handled it overall>","moments":[{"quote":"<short real quote from the user>","style":"<style that quote showed>","note":"<one sentence on its effect>"}],"alternatives":[{"style":"<a DIFFERENT style worth trying>","example":"<one sentence: what the user could have said in that style at a key moment>"}]}\n\nGive 2-3 moments and 2-3 alternatives, grounded in what the user actually said.`,
+        config: { responseMimeType: 'application/json' },
+      });
+      this.send({ type: 'lbd_debrief', data: JSON.parse(res.text) });
+    } catch (e) {
+      console.error('lbd debrief failed:', e?.message || e);
+      this.send({ type: 'lbd_debrief', data: null });
+    }
+  }
+
   // Quietly bring a coach up to speed on what it missed since it last spoke,
   // injected as context with turnComplete:false so it does NOT trigger a reply.
   catchUp(name) {
@@ -378,25 +434,9 @@ class Conversation {
         console.log(`  ■ ${this.responder} turn: received ${this.turnChunks} chunks, ~${ms}ms of audio`);
         break;
       }
-      case 'lbd_say': {
-        // Conflict simulator: have one voice perform a counterpart's line.
-        const who = m.who === 'Jeenie' ? 'Jeenie' : 'Luc';
-        const s = this.sessions[who];
-        const line = typeof m.line === 'string' ? m.line.trim() : '';
-        if (!s || !line) return;
-        const as = typeof m.as === 'string' && m.as.trim() ? m.as.trim() : 'a colleague';
-        this.responder = who;
-        this.userTurnText = '';
-        this.respTurnText = '';
-        this.send({ type: 'speaker', name: who });
-        try {
-          s.sendClientContent({
-            turns: [{ role: 'user', parts: [{ text: `In character as ${as}, say this line out loud, naturally and with the right emotion. Say only the line:\n"${line}"` }] }],
-            turnComplete: true,
-          });
-        } catch (e) {
-          console.error('lbd_say failed:', e?.message || e);
-        }
+      case 'lbd_debrief': {
+        // Conflict simulator: analyze the spoken transcript and classify the user.
+        this.debriefLbd();
         break;
       }
       case 'mode': {
@@ -404,23 +444,30 @@ class Conversation {
         const jd = typeof m.jobDescription === 'string' ? m.jobDescription : this.jobDescription;
         const resume = typeof m.resume === 'string' ? m.resume : this.resume;
         const resumeChanged = resume !== this.resume;
+        const lbdChanged = mode === 'lbd' && m.lbd && JSON.stringify(m.lbd) !== JSON.stringify(this.lbd);
         const changed =
           mode !== this.mode ||
-          (mode === 'interview' && (jd !== this.jobDescription || resumeChanged));
+          (mode === 'interview' && (jd !== this.jobDescription || resumeChanged)) ||
+          lbdChanged;
         this.mode = mode;
         this.jobDescription = jd;
         this.resume = resume;
-        // Persist the resume to the account so it's there next time.
+        if (mode === 'lbd' && m.lbd) {
+          this.lbd = m.lbd;
+          this.transcript = []; // fresh scene; don't seed the counterparts with old chat
+          this.seen = { Luc: 0, Jeenie: 0 };
+        }
         if (resumeChanged && this.identity?.uid && typeof resume === 'string') {
           saveUserResume(this.identity.uid, resume).catch((e) =>
             console.error('resume save failed:', e?.message || e),
           );
         }
         if (changed) {
-          // System prompt (job description / resume) changed, so re-open both
-          // sessions, then kick off the first interview question if entering the drill.
+          // System prompt changed, so re-open both sessions, then kick off the
+          // first turn of whichever drill we're entering.
           this.reconnect().then(() => {
             if (this.mode === 'interview') this.beginInterview();
+            else if (this.mode === 'lbd') this.beginLbd();
           });
         }
         break;
