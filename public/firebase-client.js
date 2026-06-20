@@ -34,10 +34,17 @@ analyticsSupported()
   .catch(() => {});
 
 let currentUser = null;
-let authStatusEl;
-let googleButton;
-let emailButton;
-let signOutButton;
+let menuRoot; // the #account-menu container we render into
+let menuOpen = false;
+let lastAuthMessage = '';
+
+function escAttr(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
 
 onAuthStateChanged(auth, (user) => {
   currentUser = user;
@@ -59,39 +66,69 @@ if (isSignInWithEmailLink(auth, window.location.href)) {
 }
 
 export function initAuthUi() {
-  authStatusEl = document.getElementById('auth-status');
-  googleButton = document.getElementById('google-signin');
-  emailButton = document.getElementById('email-link');
-  signOutButton = document.getElementById('signout');
+  menuRoot = document.getElementById('account-menu');
+  if (!menuRoot) return; // page has no account menu (e.g. /about)
 
-  googleButton?.addEventListener('click', async () => {
-    try {
-      await signInWithPopup(auth, new GoogleAuthProvider());
-    } catch (err) {
-      setAuthStatus(err.message);
+  // One delegated handler — the menu is re-rendered on every auth change.
+  menuRoot.addEventListener('click', (e) => {
+    const act = e.target.closest('[data-act]')?.dataset.act;
+    if (!act) return;
+    if (act === 'signin') return doGoogleSignIn();
+    if (act === 'emaillink') return doEmailLinkSignIn();
+    if (act === 'toggle') return toggleMenu();
+    if (act === 'signout') {
+      closeMenu();
+      signOut(auth).catch((err) => setAuthStatus(err.message));
     }
   });
 
-  emailButton?.addEventListener('click', async () => {
-    const email = window.prompt('Email address');
-    if (!email) return;
-    try {
-      await sendSignInLinkToEmail(auth, email, {
-        url: window.location.href,
-        handleCodeInApp: true,
-      });
-      window.localStorage.setItem('talk2me.emailForSignIn', email);
-      setAuthStatus('Check your email for the sign-in link.');
-    } catch (err) {
-      setAuthStatus(err.message);
-    }
+  // Close the dropdown on outside click or Escape.
+  document.addEventListener('click', (e) => {
+    if (menuOpen && menuRoot && !menuRoot.contains(e.target)) closeMenu();
   });
-
-  signOutButton?.addEventListener('click', () => {
-    signOut(auth).catch((err) => setAuthStatus(err.message));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && menuOpen) closeMenu();
   });
 
   renderAuthState();
+}
+
+async function doGoogleSignIn() {
+  try {
+    await signInWithPopup(auth, new GoogleAuthProvider());
+  } catch (err) {
+    setAuthStatus(err.message);
+  }
+}
+
+async function doEmailLinkSignIn() {
+  const email = window.prompt('Email address');
+  if (!email) return;
+  try {
+    await sendSignInLinkToEmail(auth, email, { url: window.location.href, handleCodeInApp: true });
+    window.localStorage.setItem('talk2me.emailForSignIn', email);
+    setAuthStatus('Check your email for the sign-in link.');
+  } catch (err) {
+    setAuthStatus(err.message);
+  }
+}
+
+function toggleMenu() {
+  menuOpen ? closeMenu() : openMenu();
+}
+function openMenu() {
+  menuOpen = true;
+  const panel = menuRoot?.querySelector('[data-menu]');
+  const btn = menuRoot?.querySelector('[data-act="toggle"]');
+  if (panel) panel.hidden = false;
+  if (btn) btn.setAttribute('aria-expanded', 'true');
+}
+function closeMenu() {
+  menuOpen = false;
+  const panel = menuRoot?.querySelector('[data-menu]');
+  const btn = menuRoot?.querySelector('[data-act="toggle"]');
+  if (panel) panel.hidden = true;
+  if (btn) btn.setAttribute('aria-expanded', 'false');
 }
 
 export async function getCurrentIdToken(forceRefresh = false) {
@@ -137,21 +174,31 @@ async function ensureDisplayName(user) {
 }
 
 function renderAuthState() {
-  if (!authStatusEl) return;
+  if (!menuRoot) return;
+  menuOpen = false;
+
   if (!currentUser) {
-    authStatusEl.textContent = 'Not signed in';
-    if (googleButton) googleButton.hidden = false;
-    if (emailButton) emailButton.hidden = false;
-    if (signOutButton) signOutButton.hidden = true;
+    menuRoot.innerHTML = `
+      <button class="lbd-mini-btn" data-act="signin" type="button">Sign in</button>
+      ${lastAuthMessage ? `<span class="lbd-auth-status lbd-menu-msg">${escAttr(lastAuthMessage)}</span>` : ''}`;
     return;
   }
 
-  authStatusEl.textContent = currentUser.email || 'Signed in';
-  if (googleButton) googleButton.hidden = true;
-  if (emailButton) emailButton.hidden = true;
-  if (signOutButton) signOutButton.hidden = false;
+  const label = currentUser.displayName || currentUser.email || 'Account';
+  const initial = (label.trim()[0] || '?').toUpperCase();
+  menuRoot.innerHTML = `
+    <button class="lbd-avatar-btn" data-act="toggle" type="button"
+      aria-haspopup="true" aria-expanded="false" title="${escAttr(label)}">${escAttr(initial)}</button>
+    <div class="lbd-menu" data-menu hidden>
+      <span class="lbd-menu-label">Signed in as</span>
+      ${currentUser.displayName ? `<p class="lbd-menu-name">${escAttr(currentUser.displayName)}</p>` : ''}
+      <p class="lbd-menu-email">${escAttr(currentUser.email || '')}</p>
+      <button class="lbd-mini-btn" data-act="signout" type="button">Sign out</button>
+    </div>`;
 }
 
 function setAuthStatus(message) {
-  if (authStatusEl) authStatusEl.textContent = message;
+  lastAuthMessage = message || '';
+  if (message) console.info('[auth]', message);
+  if (!currentUser) renderAuthState();
 }

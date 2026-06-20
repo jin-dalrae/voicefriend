@@ -25,6 +25,7 @@ import {
   getLbdSessions,
   getLbdCredits,
   consumeLbdCredit,
+  getAdminOverview,
 } from './db.js';
 import { authenticateWebSocketRequest, verifyFirebaseIdToken, getBearerToken, REQUIRE_FIREBASE_AUTH } from './auth.js';
 
@@ -37,6 +38,11 @@ const PROFILE_MODEL = 'gemini-2.5-flash'; // cheap text model used to update the
 // search (googleSearch tool) can hang without ever sending turnComplete or an
 // error; the watchdog is the safety net for that and any silent disconnect.
 const TURN_STALL_MS = Number(process.env.TURN_STALL_MS) || 30000;
+// Who may load /api/admin/overview. Comma-separated emails; override via env.
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || 'dalrae.jin.work@gmail.com')
+  .split(',')
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean);
 
 // --- tiny .env loader (handles "KEY = value", quotes, comments) ----------------
 function loadEnv(path = '.env') {
@@ -604,7 +610,7 @@ class Conversation {
             intents: this.lbdIntents?.length ? [...this.lbdIntents] : [],
           }).catch((err) => console.error('lbd debrief save failed:', err?.message || err));
         }
-        await this.speakDebriefAloud(data);
+        // Debrief is shown as a written report only — no spoken read-aloud.
         this.send({ type: 'lbd_debrief', data });
     } catch (e) {
       console.error('lbd debrief failed:', e?.message || e);
@@ -891,6 +897,28 @@ app.get('/api/lbd/trends', async (req, res) => {
     res.status(200).json({ sessions });
   } catch (err) {
     res.status(401).json({ error: err?.message || 'Unauthorized' });
+  }
+});
+
+// Admin dashboard — every user + LbD usage. Gated by the ADMIN_EMAILS allowlist
+// (401 = not signed in, 403 = signed in but not an admin).
+app.get('/api/admin/overview', async (req, res) => {
+  let identity;
+  try {
+    identity = await verifyFirebaseIdToken(getBearerToken(req), { required: true });
+  } catch (err) {
+    return res.status(401).json({ error: err?.message || 'Unauthorized' });
+  }
+  const email = (identity.email || '').toLowerCase();
+  if (!email || !ADMIN_EMAILS.includes(email)) {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+  try {
+    const data = await getAdminOverview();
+    res.status(200).json({ ...data, admin: email });
+  } catch (err) {
+    console.error('admin overview failed:', err?.message || err);
+    res.status(500).json({ error: 'Failed to load overview' });
   }
 });
 

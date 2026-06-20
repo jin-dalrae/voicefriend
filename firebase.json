@@ -17,6 +17,14 @@
         "destination": "/lbd-trends.html"
       },
       {
+        "source": "/about",
+        "destination": "/about.html"
+      },
+      {
+        "source": "/admin",
+        "destination": "/admin.html"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

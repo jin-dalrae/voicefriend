@@ -180,6 +180,53 @@ export function scenarioDisplayName(scenarioId, scenarioTitle) {
   return scenarioTitle || scenarioId || 'Session';
 }
 
+/**
+ * Framework metadata for each scenario — the single source of truth shared by
+ * the simulator (lbd.js merges in the roleplay cast) and the /about guide, so
+ * the guide can never drift from what the scenarios actually train.
+ */
+export const SCENARIO_FRAMEWORKS = {
+  deadline: {
+    title: 'Logical Sparring',
+    blurb: 'Maya pushes to cut research for an exec demo. Speak naturally — your debrief diagnoses how you argued.',
+    stakes: 'Ship quality vs. a fixed exec demo; eng is ready to start Monday.',
+    authorityGap: 'You influence the design process but do not control the roadmap or eng capacity.',
+    primaryStyles: ['Negotiator', 'Fighter'],
+    feedbackFit: null,
+    coachingNote: 'Collaborating (Negotiator) works when you trade across issues — timeline, scope, risk — not when you only say "research matters."',
+  },
+  critique: {
+    title: 'Critique Crossfire',
+    blurb: 'A peer publicly trashes your design direction in a crit. The room is watching.',
+    stakes: 'Your credibility with the design team and the direction for the quarter.',
+    authorityGap: 'Peers do not report to you; the room expects you to lead without pulling rank.',
+    primaryStyles: ['Radical Candor', 'Negotiator'],
+    feedbackFit: 'SBI or Radical Candor — respond to public criticism with specificity, not defensiveness.',
+    coachingNote: 'Competing (Fighter) in a public crit often escalates; use care + direct challenge, then pivot to criteria.',
+  },
+  accessibility: {
+    title: 'The Scope Cut',
+    blurb: 'Engineering wants to drop all accessibility to hit the date. Where is your line?',
+    stakes: 'Legal/ethical floor vs. release date; PM metrics do not include accessibility.',
+    authorityGap: 'Eng owns implementation; you set standards but cannot force the backlog.',
+    primaryStyles: ['Fighter', 'Negotiator'],
+    feedbackFit: null,
+    coachingNote: 'Hold a non-negotiable floor (compliance, core flows) then negotiate phasing — "later" without a date is not a plan.',
+  },
+  intake: {
+    title: 'The Intake Bypass',
+    blurb: "A VP stakeholder routed work straight to eng and skipped your team's process.",
+    stakes: 'Team capacity, design quality on a high-visibility exec ask, precedent for bypass.',
+    authorityGap: 'The VP has organizational power; you cannot say "no" — only renegotiate how work enters.',
+    primaryStyles: ['Negotiator', 'Diplomat'],
+    feedbackFit: 'AID works well with senior stakeholders — action, impact, desired routing.',
+    coachingNote: 'De-escalate with a senior (Diplomat) then re-anchor process (Negotiator) — competing with a VP rarely ends well.',
+  },
+};
+
+/** Display order for the scenarios (featured first). */
+export const SCENARIO_FRAMEWORK_ORDER = ['deadline', 'critique', 'accessibility', 'intake'];
+
 export const LATERAL_LEADERSHIP = `
 Lateral leadership is how design leaders influence without authority: negotiating with PMs and eng,
 giving peer feedback in crits, protecting standards (research, accessibility, process), and resolving conflict
@@ -462,7 +509,7 @@ export function buildTrendsInsights(sessions) {
   };
 }
 
-const LOGIC_PATTERNS = [
+export const LOGIC_PATTERNS = [
   'Evidence + criteria',
   'Interest surfacing',
   'Trade-off framing',

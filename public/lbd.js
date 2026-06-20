@@ -1,8 +1,7 @@
 import { getCurrentIdToken, initAuthUi } from './firebase-client.js';
 import { creditsLabel, fetchLbdCredits } from './lbd-credits.js';
 import {
-  CONFLICT_STYLES,
-  FEEDBACK_MODELS,
+  SCENARIO_FRAMEWORKS,
   renderDebriefHtml,
 } from './lbd-frameworks.js';
 
@@ -10,17 +9,14 @@ import {
 
 const SOFT_HINT_EXCHANGES = 8;
 
+// Roleplay cast + situation per scenario. Framework metadata (title, blurb,
+// stakes, authority gap, styles, coaching note) lives in SCENARIO_FRAMEWORKS so
+// the /about guide and the simulator stay in sync — merged in below.
 const SCENARIOS = [
   {
     id: 'deadline',
-    title: 'Logical Sparring',
     featured: true,
-    blurb: 'Maya pushes to cut research for an exec demo. Speak naturally — your debrief diagnoses how you argued.',
-    stakes: 'Ship quality vs. a fixed exec demo; eng is ready to start Monday.',
-    authorityGap: 'You influence the design process but do not control the roadmap or eng capacity.',
-    primaryStyles: ['Negotiator', 'Fighter'],
-    feedbackFit: null,
-    coachingNote: 'Collaborating (Negotiator) works when you trade across issues — timeline, scope, risk — not when you only say "research matters."',
+    ...SCENARIO_FRAMEWORKS.deadline,
     situation:
       'A design leader is trying to protect the research and design-QA process. The product manager wants to cut it to hit an exec demo that just moved up two weeks. The deadline is fixed; the design leader has no authority over the PM.',
     a: { name: 'Maya', voice: 'Jeenie', role: 'the Product Manager', stance: 'You moved the exec demo up two weeks and want to cut the user-research round and design-QA pass. You think research rarely changes the answer and will defend the date hard — unless the designer offers a faster, smaller study or a post-demo QA window you can sell upstream.', opening: "The exec demo got moved up two weeks — let's just skip the research round and build it. We already know what users want, right?" },
@@ -28,13 +24,7 @@ const SCENARIOS = [
   },
   {
     id: 'critique',
-    title: 'Critique Crossfire',
-    blurb: 'A peer publicly trashes your design direction in a crit. The room is watching.',
-    stakes: 'Your credibility with the design team and the direction for the quarter.',
-    authorityGap: 'Peers do not report to you; the room expects you to lead without pulling rank.',
-    primaryStyles: ['Radical Candor', 'Negotiator'],
-    feedbackFit: 'SBI or Radical Candor — respond to public criticism with specificity, not defensiveness.',
-    coachingNote: 'Competing (Fighter) in a public crit often escalates; use care + direct challenge, then pivot to criteria.',
+    ...SCENARIO_FRAMEWORKS.critique,
     situation:
       "In a team design critique, a peer designer publicly says the design leader's direction is wrong and dated. The design leader has no authority over the peer and has to handle the challenge in front of the team.",
     a: { name: 'Devon', voice: 'Luc', role: 'a peer designer', stance: "You think the direction is wrong and dated, and you said so openly. You want a real answer on user evidence and criteria — not a brush-off. You will soften if the leader engages your concern with specifics.", opening: "Honestly, I think this whole direction is wrong. It feels dated and I don't get why we're going this way." },
@@ -42,13 +32,7 @@ const SCENARIOS = [
   },
   {
     id: 'accessibility',
-    title: 'The Scope Cut',
-    blurb: 'Engineering wants to drop all accessibility to hit the date. Where is your line?',
-    stakes: 'Legal/ethical floor vs. release date; PM metrics do not include accessibility.',
-    authorityGap: 'Eng owns implementation; you set standards but cannot force the backlog.',
-    primaryStyles: ['Fighter', 'Negotiator'],
-    feedbackFit: null,
-    coachingNote: 'Hold a non-negotiable floor (compliance, core flows) then negotiate phasing — "later" without a date is not a plan.',
+    ...SCENARIO_FRAMEWORKS.accessibility,
     situation:
       'Engineering wants to drop all accessibility work this release to hit the date and "do it later". The design leader believes accessibility is a non-negotiable floor and a legal risk, but has no authority over engineering.',
     a: { name: 'Raj', voice: 'Luc', role: 'the Eng Lead', stance: "To hit the date you're cutting all accessibility this release — screen reader support, focus states, everything — for 'later'. You think it's too much work unless the designer gives a minimal shippable slice with dates.", opening: "To hit the date, we're cutting the accessibility work this release — screen reader support, focus states, all of it. We'll do it later." },
@@ -56,13 +40,7 @@ const SCENARIOS = [
   },
   {
     id: 'intake',
-    title: 'The Intake Bypass',
-    blurb: 'A VP stakeholder routed work straight to eng and skipped your team\'s process.',
-    stakes: 'Team capacity, design quality on a high-visibility exec ask, precedent for bypass.',
-    authorityGap: 'The VP has organizational power; you cannot say "no" — only renegotiate how work enters.',
-    primaryStyles: ['Negotiator', 'Diplomat'],
-    feedbackFit: 'AID works well with senior stakeholders — action, impact, desired routing.',
-    coachingNote: 'De-escalate with a senior (Diplomat) then re-anchor process (Negotiator) — competing with a VP rarely ends well.',
+    ...SCENARIO_FRAMEWORKS.intake,
     situation:
       "A VP emailed engineering directly to jump-start a CEO's pet feature, skipping the design team's intake and research. Eng has already started. The design leader must reassert process without humiliating the VP or blocking the CEO's visibility.",
     a: { name: 'Jordan', voice: 'Jeenie', role: 'a VP of Product', stance: "You routed this directly to eng because the CEO wants movement and intake felt slow. Push urgency early, but if the user proposes intake-lite (≤3 days), a paired sprint with named designers, or a same-day VP huddle, negotiate or accept — you are not trying to humiliate design. Never pretend the design VP was fully looped if they were not.", opening: "I sent this straight to eng — the CEO wants to see progress next week and we cannot wait on intake." },
@@ -392,16 +370,6 @@ function stopTalking() {
   workletNode?.port.postMessage({ cmd: 'stop' });
 }
 
-function frameworkGuideHtml() {
-  const conflict = Object.entries(CONFLICT_STYLES)
-    .map(([k, v]) => `<p><span class="lbd-tag lbd-${k.replace(/\W/g, '')}">${k}</span> <em>${v.tki}</em> — ${v.whenItWorks}</p>`)
-    .join('');
-  const feedback = Object.entries(FEEDBACK_MODELS)
-    .map(([k, v]) => `<p><span class="lbd-tag lbd-${k.replace(/\W/g, '')}">${k}</span> — ${v.structure}</p>`)
-    .join('');
-  return `${conflict}${feedback}`;
-}
-
 // ---- picker ------------------------------------------------------------------
 function renderPicker() {
   stopPlayback();
@@ -423,11 +391,7 @@ function renderPicker() {
       </header>
       <div class="lbd-cards">${cards}</div>
       <footer class="lbd-picker-foot">
-        <details class="lbd-guide">
-          <summary>Framework guide (Thomas-Kilmann + feedback models)</summary>
-          <div class="lbd-guide-body">${frameworkGuideHtml()}</div>
-        </details>
-        <p class="lbd-foot"><a class="lbd-link" href="/lbd/trends">Speaking trends</a></p>
+        <p class="lbd-foot"><a class="lbd-link" href="/about">Framework guide &amp; design rationale</a> · <a class="lbd-link" href="/lbd/trends">Speaking trends</a></p>
       </footer>
     </div>`;
   pickerEl.scrollTop = 0;
@@ -690,7 +654,7 @@ function updateProgress() {
 function triggerDebrief() {
   if (!ws || ws.readyState !== 1) return;
   if (talkBtn) talkBtn.disabled = true;
-  setStatus('Analyzing your session — Alex will read your debrief aloud…');
+  setStatus('Analyzing your session — building your debrief…');
   ws.send(JSON.stringify({ type: 'lbd_debrief' }));
 }
 

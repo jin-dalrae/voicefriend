@@ -685,3 +685,81 @@ a.lbd-nav-link { text-decoration: none; color: var(--lbd-ink); display: inline-f
 .lbd-guide-body { margin-top: 12px; padding: 14px 16px; border: 1px solid var(--lbd-line); border-radius: var(--lbd-radius-sm); background: var(--lbd-panel-soft); }
 .lbd-guide-body p { margin: 0 0 10px; line-height: 1.5; font-size: 13px; }
 .lbd-guide-body em { color: var(--lbd-dim); font-style: normal; font-size: 11px; }
+
+/* about / framework guide page */
+.lbd-rationale p { margin: 0 0 12px; line-height: 1.6; }
+.lbd-rationale p:last-child { margin-bottom: 0; }
+.lbd-rationale strong { color: var(--lbd-ink); }
+.lbd-rationale em { color: var(--lbd-muted); font-style: italic; }
+.lbd-rationale .lbd-tag { vertical-align: baseline; }
+.lbd-about-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(248px, 1fr)); gap: 12px; margin-top: 10px; }
+.lbd-about-card {
+  border: 1px solid var(--lbd-line);
+  border-radius: var(--lbd-radius-sm);
+  background: var(--lbd-panel-soft);
+  padding: 14px 16px;
+}
+.lbd-about-card-title { font-family: var(--lbd-font-display); font-size: 18px; margin: 0 0 4px; color: var(--lbd-ink); }
+.lbd-about-card p { margin: 8px 0 0; font-size: 13px; line-height: 1.5; }
+.lbd-about-card p:first-of-type { margin-top: 6px; }
+.lbd-about-card em { color: var(--lbd-muted); font-style: italic; }
+.lbd-kicker { font-family: var(--lbd-font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--lbd-dim); }
+.lbd-about-meta { display: block; font-size: 12px; color: var(--lbd-dim); margin-top: 6px; line-height: 1.45; }
+.lbd-about-meta strong { color: var(--lbd-muted); }
+.lbd-scn-styles { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 4px; }
+.lbd-chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.lbd-chip {
+  font-family: var(--lbd-font-mono);
+  font-size: 11px;
+  padding: 5px 11px;
+  border-radius: var(--lbd-radius-pill);
+  border: 1px solid var(--lbd-line);
+  background: var(--lbd-panel-soft);
+  color: var(--lbd-muted);
+}
+
+/* account menu (avatar → dropdown with email + sign out) */
+.lbd-account { position: relative; display: inline-flex; align-items: center; gap: 8px; }
+.lbd-avatar-btn {
+  width: 34px; height: 34px;
+  border-radius: var(--lbd-radius-pill);
+  border: 1px solid var(--lbd-line-strong);
+  background: var(--lbd-panel-soft);
+  color: var(--lbd-ink);
+  font-family: var(--lbd-font-mono); font-size: 14px; font-weight: 600;
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.lbd-avatar-btn:hover { border-color: var(--lbd-blue); }
+.lbd-menu {
+  position: absolute; top: calc(100% + 8px); right: 0;
+  min-width: 220px;
+  background: var(--lbd-panel);
+  border: 1px solid var(--lbd-line-strong);
+  border-radius: var(--lbd-radius-md);
+  backdrop-filter: var(--lbd-blur);
+  padding: 14px;
+  z-index: 60;
+  box-shadow: 0 14px 34px oklch(0 0 0 / 0.4);
+}
+.lbd-menu-label { font-family: var(--lbd-font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--lbd-dim); display: block; }
+.lbd-menu-name { margin: 6px 0 2px; font-size: 14px; color: var(--lbd-ink); }
+.lbd-menu-email { margin: 4px 0 12px; font-size: 12px; color: var(--lbd-muted); word-break: break-all; }
+.lbd-menu .lbd-mini-btn { width: 100%; text-align: center; }
+.lbd-menu-msg { max-width: 220px; }
+
+/* admin dashboard table */
+.lbd-admin-table-wrap { overflow-x: auto; margin-top: 10px; }
+.lbd-admin-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.lbd-admin-table th {
+  text-align: left;
+  font-family: var(--lbd-font-mono); font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--lbd-dim);
+  padding: 8px 10px; border-bottom: 1px solid var(--lbd-line); white-space: nowrap;
+}
+.lbd-admin-table td { padding: 10px; border-bottom: 1px solid var(--lbd-line); vertical-align: top; }
+.lbd-admin-table tr:last-child td { border-bottom: none; }
+.lbd-admin-email { display: block; color: var(--lbd-ink); word-break: break-all; }
+.lbd-admin-name { display: block; font-size: 12px; color: var(--lbd-dim); margin-top: 2px; }
+.lbd-admin-num { text-align: center; font-variant-numeric: tabular-nums; color: var(--lbd-muted); white-space: nowrap; }
+.lbd-admin-date { color: var(--lbd-dim); white-space: nowrap; }

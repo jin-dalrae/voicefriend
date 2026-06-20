@@ -108,6 +108,59 @@ export async function getLbdSessions(uid, limit = 60) {
   return snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 }
 
+function tsToMillis(ts) {
+  if (!ts) return null;
+  if (typeof ts.toMillis === 'function') return ts.toMillis();
+  if (ts._seconds) return ts._seconds * 1000;
+  return null;
+}
+
+// Admin overview: every user plus their LbD usage. Server-only (admin SDK
+// bypasses Firestore rules); gate the calling route to admins. Per user this is
+// one list read + a count() aggregation + today's usage doc, so it stays cheap.
+export async function getAdminOverview({ maxUsers = 500 } = {}) {
+  const day = lbdUsageDayKey();
+  const snap = await db().collection('users').limit(maxUsers).get();
+
+  const users = await Promise.all(
+    snap.docs.map(async (doc) => {
+      const u = doc.data() || {};
+      let lbdSessions = 0;
+      let lbdToday = 0;
+      try {
+        const cnt = await doc.ref.collection('lbd_sessions').count().get();
+        lbdSessions = cnt.data().count || 0;
+      } catch { /* subcollection may not exist */ }
+      try {
+        const usage = await doc.ref.collection('usage').doc(`lbd-${day}`).get();
+        lbdToday = usage.exists ? Number(usage.data().lbdSimulations) || 0 : 0;
+      } catch { /* no usage today */ }
+      return {
+        uid: doc.id,
+        email: u.email || null,
+        name: u.profile?.name || null,
+        tier: u.tier || 'free',
+        onboarded: Boolean(u.onboarded),
+        createdAt: tsToMillis(u.createdAt),
+        updatedAt: tsToMillis(u.updatedAt),
+        lbdSessions,
+        lbdToday,
+      };
+    }),
+  );
+
+  users.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+  const totals = {
+    users: users.length,
+    onboarded: users.filter((u) => u.onboarded).length,
+    lbdSessions: users.reduce((n, u) => n + u.lbdSessions, 0),
+    lbdToday: users.reduce((n, u) => n + u.lbdToday, 0),
+  };
+
+  return { users, totals, day };
+}
+
 export const LBD_DAILY_FREE_CREDITS = 5;
 
 function lbdUsageDayKey(date = new Date()) {
