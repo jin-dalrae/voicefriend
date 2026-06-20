@@ -31,6 +31,7 @@ import {
   getAdminUserDetail,
 } from './db.js';
 import { authenticateWebSocketRequest, verifyFirebaseIdToken, getBearerToken, REQUIRE_FIREBASE_AUTH } from './auth.js';
+import { record as recordMetric, snapshot as metricsSnapshot } from './metrics.js';
 
 const LOG_TRANSCRIPTS = process.env.LOG_TRANSCRIPTS === '1'; // set LOG_TRANSCRIPTS=1 to also print to console
 const LOG_TO_FILE = process.env.LOG_TO_FILE !== '0'; // transcripts → data/transcript.jsonl (on by default)
@@ -134,6 +135,8 @@ class Conversation {
     this.authed = false;
     this.sessionId = null;
     this.turnWatchdog = null; // re-arms the client if a coach turn stalls
+    this.turnCommittedAt = null; // ms timestamp when the user's turn was committed (mic_end)
+    this.turnFirstAudioAt = null; // ms timestamp of the first audio byte streamed back this turn
 
     if (!REQUIRE_FIREBASE_AUTH) {
       // Dev/local: anonymous, local-file memory, open sessions right away.
@@ -186,6 +189,8 @@ class Conversation {
       this.turnWatchdog = null;
       if (this.turnAborted) return;
       console.warn(`  ⚠ ${this.responder} turn stalled (${TURN_STALL_MS}ms, no output) — re-arming client`);
+      this.turnCommittedAt = null;
+      this.turnFirstAudioAt = null;
       this.userTurnText = '';
       this.respTurnText = '';
       this.send({ type: 'error', message: "Sorry — that one didn't go through. Tap to talk and try again." });
@@ -251,6 +256,8 @@ class Conversation {
       console.warn(`  ⚠ [${name}] Live API goAway (timeLeft: ${msg.goAway.timeLeft || 'n/a'})`);
       if (name === this.responder) {
         this.clearTurnWatchdog();
+        this.turnCommittedAt = null;
+        this.turnFirstAudioAt = null;
         this.send({ type: 'error', message: 'The voice session dropped — tap to talk to continue.' });
       }
       return;
@@ -275,6 +282,12 @@ class Conversation {
       for (const part of sc.modelTurn.parts) {
         if (part.executableCode) this.send({ type: 'searching', name }); // using web search
         if (part.inlineData?.data) {
+          if (this.turnCommittedAt != null && this.turnFirstAudioAt == null) {
+            this.turnFirstAudioAt = Date.now();
+            const ttfa = this.turnFirstAudioAt - this.turnCommittedAt;
+            recordMetric('ttfa', ttfa);
+            console.log(`  ⏱ ${name} first audio in ${ttfa}ms`);
+          }
           this.send({ type: 'audio', data: part.inlineData.data });
         }
       }
@@ -282,6 +295,13 @@ class Conversation {
     if (sc.interrupted) this.send({ type: 'interrupted' });
     if (sc.turnComplete) {
       this.clearTurnWatchdog();
+      // Full-turn latency: only for genuine user-initiated turns (mic_end set the
+      // clock) that ran to completion — skip aborted turns and the spoken debrief.
+      if (this.turnCommittedAt != null && !this.turnAborted) {
+        recordMetric('turn', Date.now() - this.turnCommittedAt);
+      }
+      this.turnCommittedAt = null;
+      this.turnFirstAudioAt = null;
       // Conflict simulator: keep the exchange in memory for the debrief, but
       // never persist it to the user's Firestore profile/transcript.
       if (this.mode === 'lbd' && this.speakingDebrief) {
@@ -711,6 +731,8 @@ class Conversation {
         this.respTurnText = '';
         this.turnChunks = 0;
         this.turnBytes = 0;
+        this.turnCommittedAt = null;
+        this.turnFirstAudioAt = null;
         this.currentIntent = typeof m.intent === 'string' ? m.intent : 'natural';
         const s = this.sessions[this.responder];
         if (!s) return;
@@ -738,6 +760,10 @@ class Conversation {
           if (this.mode === 'lbd') this.injectLbdTurnHint(s);
           s.sendRealtimeInput({ activityEnd: {} });
         }
+        // Start the latency stopwatch: the user has finished speaking, so the
+        // clock for time-to-first-audio and full-turn latency starts now.
+        this.turnCommittedAt = Date.now();
+        this.turnFirstAudioAt = null;
         const ms = Math.round((this.turnBytes / 2 / 16000) * 1000);
         console.log(`  ■ ${this.responder} turn: received ${this.turnChunks} chunks, ~${ms}ms of audio`);
         // Watch for a model turn that never produces output (e.g. a hung web search).
@@ -753,6 +779,8 @@ class Conversation {
         }
         this.turnAborted = true;
         this.clearTurnWatchdog();
+        this.turnCommittedAt = null;
+        this.turnFirstAudioAt = null;
         this.userTurnText = '';
         this.respTurnText = '';
         this.send({ type: 'interrupted' });
@@ -904,6 +932,13 @@ app.get('/healthz', (_req, res) => {
 
 app.get('/api/health', (_req, res) => {
   res.status(200).json({ ok: true, build: 'lbd-2026-06-19' });
+});
+
+// Live latency for this relay instance: time-to-first-audio and full-turn
+// latency (p50/p95/min/max/avg over a rolling window). No secrets, so it's open
+// — handy for a quick `curl .../api/metrics` or an uptime check after deploy.
+app.get('/api/metrics', (_req, res) => {
+  res.status(200).json(metricsSnapshot());
 });
 
 // LbD speaking-trends dashboard (persisted debriefs in Firestore).

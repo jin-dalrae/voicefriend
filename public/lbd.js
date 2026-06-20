@@ -350,7 +350,7 @@ async function startTalking() {
   recording = true;
   if (wrapBtn) wrapBtn.disabled = true;
   clearTimeout(recTimer);
-  recTimer = setTimeout(() => { if (recording) { setStatus('3-min limit reached - sending.'); stopTalking(); } }, 3 * 60 * 1000);
+  recTimer = setTimeout(() => { if (recording) { setStatus('3-min limit reached — sending.'); stopTalking(); } }, 3 * 60 * 1000);
   talkBtn.classList.add('recording');
   setTalkLabel('Listening… tap to send');
   setStatus('Listening…');
