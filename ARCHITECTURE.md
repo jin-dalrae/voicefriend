@@ -159,6 +159,33 @@ first-class concern, not an afterthought:
   model. Sequencing is **caps before billing** — never expose uncapped native-audio
   cost. See [PLAN.md](./PLAN.md).
 
+## 7. Gemini Developer API, not Vertex AI (yet)
+
+The relay talks to Gemini through the **Gemini Developer API** (Google AI):
+`new GoogleGenAI({ apiKey: GEMINI_API_KEY })`, key in Secret Manager. The key we
+have is a **Developer-API key with Live access** — a "Google Live API key" — and
+that is exactly the credential the relay uses. (Vertex AI isn't an API-key surface:
+its native auth is IAM / Application Default Credentials — a service account, not
+that key. So "I already have a key" points to the Developer API, not Vertex.)
+
+Why the Developer API fits this project:
+
+- **Auth that fits a single-key relay.** One `GEMINI_API_KEY` → Secret Manager →
+  Cloud Run. Vertex would need ADC / workload-identity wiring.
+- **Newest native-audio Live models land here first**, including the stable
+  `-latest` alias (`gemini-2.5-flash-native-audio-latest`); Vertex often trails or
+  only exposes dated preview IDs.
+- **Cross-project simplicity.** The relay (`raejin-35457`) already reaches Firestore
+  in `talk2me-e90b1`; a key keeps model access off the project-IAM path instead of
+  adding a second cross-project surface.
+- **Free tier + simple per-key billing**, which suits a credit-funded prototype.
+
+When to move to **Vertex** (a production-hardening call, not a capability one): no
+long-lived API key (Cloud Run's service account calls Vertex via workload identity),
+plus IAM, VPC-SC, CMEK, data residency / regional endpoints, audit logs, higher
+quotas, provisioned throughput, and SLAs. Migration is cheap — same `@google/genai`
+SDK: `{ apiKey }` → `{ vertexai: true, project, location }` + ADC.
+
 ## What I'd revisit
 
 - **Responder selection** is a heuristic (lean toward switching, a little

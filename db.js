@@ -409,3 +409,105 @@ export async function consumeLbdCredit(uid) {
     };
   });
 }
+
+// --- Minute-based credits (the paid metering primitive) -----------------------
+// Talk2Me's COGS is ~$0.015–$0.025 per conversation-minute (native-audio output
+// is the driver), so usage is metered in MINUTES. A user's monthly allowance
+// comes from their plan; purchased top-up packs add non-expiring minutes on top.
+// Server-only — Firestore rules block client writes. See PRICING.md for the cost
+// model and plan table. NOTE: defined here as the primitive; not yet wired into
+// the live turn loop or Stripe.
+
+export const PLAN_MONTHLY_MINUTES = {
+  free: 150, // also gated to ~10 min/day by a separate daily cap
+  casual: 100,
+  student: 250,
+  pro: 600,
+};
+
+function usageMonthKey(date = new Date()) {
+  return date.toISOString().slice(0, 7); // YYYY-MM
+}
+
+function planMonthlyMinutes(tier) {
+  return PLAN_MONTHLY_MINUTES[tier] ?? PLAN_MONTHLY_MINUTES.free;
+}
+
+// Read-only: remaining = (this month's plan allowance − minutes used this month)
+// + non-expiring top-up minutes.
+export async function getMinuteBalance(uid) {
+  const month = usageMonthKey();
+  const [userSnap, usageSnap] = await Promise.all([
+    userRef(uid).get(),
+    userRef(uid).collection('usage').doc(month).get(),
+  ]);
+  const tier = userSnap.exists ? userSnap.data().tier || 'free' : 'free';
+  const allowance = planMonthlyMinutes(tier);
+  const used = usageSnap.exists ? Number(usageSnap.data().minutesUsed) || 0 : 0;
+  const topup = userSnap.exists ? Number(userSnap.data().topupMinutes) || 0 : 0;
+  const planRemaining = Math.max(0, allowance - used);
+  return {
+    tier,
+    month,
+    allowanceMinutes: allowance,
+    usedMinutes: used,
+    planRemaining,
+    topupMinutes: topup,
+    remaining: planRemaining + topup,
+  };
+}
+
+// Atomically spend `minutes` of balance: draw from the monthly plan allowance
+// first, then from non-expiring top-up minutes. Never goes negative — caps the
+// spend at what's available and reports any `shortfall`. Call as a conversation
+// accrues time (per turn, or per N seconds).
+export async function consumeMinutes(uid, minutes) {
+  const spend = Math.max(0, Number(minutes) || 0);
+  if (!spend) return { ok: true, spent: 0, shortfall: 0 };
+  const month = usageMonthKey();
+  const uref = userRef(uid);
+  const usageRef = uref.collection('usage').doc(month);
+
+  return db().runTransaction(async (tx) => {
+    const [userSnap, usageSnap] = await Promise.all([tx.get(uref), tx.get(usageRef)]);
+    const tier = userSnap.exists ? userSnap.data().tier || 'free' : 'free';
+    const allowance = planMonthlyMinutes(tier);
+    const used = usageSnap.exists ? Number(usageSnap.data().minutesUsed) || 0 : 0;
+    const topup = userSnap.exists ? Number(userSnap.data().topupMinutes) || 0 : 0;
+
+    const planRemaining = Math.max(0, allowance - used);
+    const remaining = planRemaining + topup;
+    if (remaining <= 0) {
+      return { ok: false, reason: 'no_balance', spent: 0, shortfall: spend, remaining: 0, tier, month };
+    }
+
+    const actual = Math.min(spend, remaining);
+    const fromPlan = Math.min(actual, planRemaining);
+    const fromTopup = actual - fromPlan;
+
+    tx.set(
+      usageRef,
+      { minutesUsed: used + fromPlan, month, updatedAt: FieldValue.serverTimestamp() },
+      { merge: true },
+    );
+    if (fromTopup > 0) {
+      tx.set(
+        uref,
+        { topupMinutes: topup - fromTopup, updatedAt: FieldValue.serverTimestamp() },
+        { merge: true },
+      );
+    }
+
+    return { ok: true, spent: actual, shortfall: spend - actual, remaining: remaining - actual, tier, month };
+  });
+}
+
+// Credit purchased, non-expiring top-up minutes (call from a Stripe webhook).
+export async function addTopupMinutes(uid, minutes) {
+  const add = Math.max(0, Number(minutes) || 0);
+  if (!add) return;
+  await userRef(uid).set(
+    { topupMinutes: FieldValue.increment(add), updatedAt: FieldValue.serverTimestamp() },
+    { merge: true },
+  );
+}

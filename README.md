@@ -121,7 +121,8 @@ the LbD debrief/logic lens — real-time work uses native audio, non-real-time a
 
 Native audio is expensive and students are price-sensitive, so usage is capped (daily credits
 today; token caps and paid tiers next) rather than bolted on later. Sequencing is **caps before
-billing** — never expose uncapped native-audio cost.
+billing** — never expose uncapped native-audio cost. The cost model and credit/subscription
+structure (grounded in the real native-audio rates) are in [PRICING.md](./PRICING.md).
 
 ---
 
@@ -353,4 +354,6 @@ guardrails in place today:
 
 Still on the roadmap before broad/paid launch: per-user **token metering and hard caps**
 (the `usage/{month}` counters are currently read by `/admin` but not yet enforced) and **Stripe**
-billing. See [PLAN.md](./PLAN.md) for the full phased rollout.
+billing. The minute-credit primitive (`consumeMinutes` / `getMinuteBalance` / `addTopupMinutes`)
+is in `db.js`; the cost model and plans are in [PRICING.md](./PRICING.md), and the full phased
+rollout is in [PLAN.md](./PLAN.md).
