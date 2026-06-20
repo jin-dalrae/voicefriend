@@ -1,4 +1,5 @@
 import { getCurrentIdToken, getDisplayName, initAuthUi } from './firebase-client.js';
+import { maybeShowAdminLink } from './admin-nav.js';
 
 // ---- websocket ---------------------------------------------------------------
 const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -23,6 +24,7 @@ async function connect() {
 window.addEventListener('talk2me:auth-changed', (e) => {
   signedIn = Boolean(e.detail?.signedIn);
   updateGate();
+  maybeShowAdminLink();
   // Auth is sent as an in-band message over the socket, so an auth change never
   // requires a new connection — just push the current token over the live one.
   // The old code closed the socket on every auth event, including Firebase's
@@ -117,6 +119,7 @@ let signedIn = false;
 
 initAuthUi();
 updateGate();
+maybeShowAdminLink();
 
 // Welcome-screen gate: require sign-in before a session can start. The name now
 // comes from the account, not a per-visit field.

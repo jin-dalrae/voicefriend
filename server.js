@@ -1,4 +1,6 @@
 import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import http from 'node:http';
 import express from 'express';
 import { WebSocketServer } from 'ws';
@@ -26,6 +28,7 @@ import {
   getLbdCredits,
   consumeLbdCredit,
   getAdminOverview,
+  getAdminUserDetail,
 } from './db.js';
 import { authenticateWebSocketRequest, verifyFirebaseIdToken, getBearerToken, REQUIRE_FIREBASE_AUTH } from './auth.js';
 
@@ -43,6 +46,30 @@ const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || 'dalrae.jin.work@gmail.com')
   .split(',')
   .map((s) => s.trim().toLowerCase())
   .filter(Boolean);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PUBLIC_DIR = path.join(__dirname, 'public');
+const LBD_PAGE_ROUTES = {
+  '/lbd': 'lbd.html',
+  '/lbd/trends': 'lbd-trends.html',
+  '/about': 'about.html',
+  '/admin': 'admin.html',
+};
+
+async function requireAdmin(req, res) {
+  let identity;
+  try {
+    identity = await verifyFirebaseIdToken(getBearerToken(req), { required: true });
+  } catch (err) {
+    res.status(401).json({ error: err?.message || 'Unauthorized' });
+    return null;
+  }
+  const email = (identity.email || '').toLowerCase();
+  if (!email || !ADMIN_EMAILS.includes(email)) {
+    res.status(403).json({ error: 'Not authorized' });
+    return null;
+  }
+  return { identity, email };
+}
 
 // --- tiny .env loader (handles "KEY = value", quotes, comments) ----------------
 function loadEnv(path = '.env') {
@@ -900,27 +927,45 @@ app.get('/api/lbd/trends', async (req, res) => {
   }
 });
 
-// Admin dashboard — every user + LbD usage. Gated by the ADMIN_EMAILS allowlist
-// (401 = not signed in, 403 = signed in but not an admin).
+app.get('/api/admin/check', async (req, res) => {
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+  res.status(200).json({ admin: true });
+});
+
 app.get('/api/admin/overview', async (req, res) => {
-  let identity;
+  const gate = await requireAdmin(req, res);
+  if (!gate) return;
   try {
-    identity = await verifyFirebaseIdToken(getBearerToken(req), { required: true });
-  } catch (err) {
-    return res.status(401).json({ error: err?.message || 'Unauthorized' });
-  }
-  const email = (identity.email || '').toLowerCase();
-  if (!email || !ADMIN_EMAILS.includes(email)) {
-    return res.status(403).json({ error: 'Not authorized' });
-  }
-  try {
-    const data = await getAdminOverview();
-    res.status(200).json({ ...data, admin: email });
+    const q = String(req.query.q || '').trim().toLowerCase();
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
+    const offset = Math.max(0, Number(req.query.offset) || 0);
+    const data = await getAdminOverview({ q, limit, offset });
+    res.status(200).json({ ...data, admin: gate.email });
   } catch (err) {
     console.error('admin overview failed:', err?.message || err);
     res.status(500).json({ error: 'Failed to load overview' });
   }
 });
+
+app.get('/api/admin/users/:uid', async (req, res) => {
+  const gate = await requireAdmin(req, res);
+  if (!gate) return;
+  try {
+    const data = await getAdminUserDetail(req.params.uid);
+    if (!data) return res.status(404).json({ error: 'User not found' });
+    res.status(200).json(data);
+  } catch (err) {
+    console.error('admin user detail failed:', err?.message || err);
+    res.status(500).json({ error: 'Failed to load user' });
+  }
+});
+
+for (const [route, file] of Object.entries(LBD_PAGE_ROUTES)) {
+  app.get(route, (_req, res) => {
+    res.sendFile(path.join(PUBLIC_DIR, file));
+  });
+}
 
 app.use(express.static('public'));
 

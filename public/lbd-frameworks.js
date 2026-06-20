@@ -479,6 +479,48 @@ export function buildTrendsInsights(sessions) {
   const scenariosPlayed = new Set(list.map((s) => s.scenarioId || s.scenarioTitle).filter(Boolean)).size;
   const coachSessions = list.filter((s) => s.variant === 'coach').length;
 
+  const scenarioMap = new Map();
+  for (const s of list) {
+    const id = s.scenarioId || s.scenarioTitle || 'unknown';
+    const row = scenarioMap.get(id) || { scenarioId: id, title: scenarioDisplayName(s.scenarioId, s.scenarioTitle), sessions: [], count: 0 };
+    row.count += 1;
+    if (s.debrief) row.sessions.push(s);
+    scenarioMap.set(id, row);
+  }
+  const scenarioBreakdown = [...scenarioMap.values()]
+    .map((row) => ({
+      scenarioId: row.scenarioId,
+      title: row.title,
+      count: row.count,
+      avgStyleMix: avgStyleMixFromSessions(row.sessions),
+      avgTurns:
+        row.count > 0
+          ? Number((row.sessions.reduce((n, s) => n + (Number(s.exchangeCount) || 0), 0) / row.count).toFixed(1))
+          : null,
+      topOutcome: row.sessions.map((s) => s.debrief?.outcome).find(Boolean) || null,
+    }))
+    .sort((a, b) => b.count - a.count);
+
+  function collaborationScore(session) {
+    const mix = session.debrief?.styleMix || [];
+    const neg = mix.find((r) => r.style === 'Negotiator')?.pct || 0;
+    const fight = mix.find((r) => r.style === 'Fighter')?.pct || 0;
+    return Number(neg) - Number(fight);
+  }
+
+  let progress = null;
+  if (withDebrief.length >= 2) {
+    const oldest = withDebrief[withDebrief.length - 1];
+    const latest = withDebrief[0];
+    const firstPrimaryStyle = avgStyleMixFromSessions([oldest])[0]?.style || null;
+    const latestPrimaryStyle = avgStyleMixFromSessions([latest])[0]?.style || null;
+    const collaborationDelta = collaborationScore(latest) - collaborationScore(oldest);
+    let note = 'Your collaboration balance has stayed fairly steady.';
+    if (collaborationDelta > 5) note = 'You are leaning more collaborative over time (Negotiator − Fighter is up).';
+    else if (collaborationDelta < -5) note = 'Recent sessions show more competitive framing — check your watch-outs.';
+    progress = { firstPrimaryStyle, latestPrimaryStyle, collaborationDelta, note };
+  }
+
   let profileSummary = '';
   if (primaryStyle && styleMeta) {
     const blend = secondaryStyle ? `, with a strong ${secondaryStyle} streak` : '';
@@ -500,6 +542,8 @@ export function buildTrendsInsights(sessions) {
     whenItFails: styleMeta?.whenItFails || '',
     profileSummary,
     avgStyleMix,
+    scenarioBreakdown,
+    progress,
     watchoutPatterns: tallyStrings(watchouts).slice(0, 8),
     strengthPatterns: tallyStrings(strengths).slice(0, 6),
     reasoningSnippets: reasoningSnippets.slice(0, 5),

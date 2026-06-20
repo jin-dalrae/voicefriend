@@ -10,7 +10,7 @@
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400..900;1,9..144,400..700&family=Open+Sans:wght@400;500;600;700&family=Roboto+Mono:wght@400;500;600&display=swap"
     />
-    <link rel="stylesheet" href="lbd.css" />
+    <link rel="stylesheet" href="/lbd.css?v=7" />
   </head>
   <body class="lbd-page">
     <header class="lbd-auth">
@@ -24,7 +24,9 @@
     </header>
 
     <main class="lbd-wrap lbd-trends-wrap">
-      <section id="trends" class="lbd-screen"></section>
+      <section id="trends" class="lbd-screen">
+        <p class="lbd-dim">Loading speaking trends…</p>
+      </section>
     </main>
 
     <script>
@@ -39,6 +41,6 @@
       };
       window.TALK2ME_WS_URL = "wss://talk2me-relay-l2a45sbrxq-uc.a.run.app/ws";
     </script>
-    <script type="module" src="lbd-trends.js"></script>
+    <script type="module" src="/lbd-trends.js?v=7"></script>
   </body>
 </html>

@@ -1,12 +1,24 @@
 import { fetchLbdSessions, getCurrentIdToken, initAuthUi } from './firebase-client.js';
 import { creditsLabel, fetchLbdCredits, lbdApiBase } from './lbd-credits.js';
-import { buildTrendsInsights, scenarioDisplayName, styleMixBarWidth } from './lbd-frameworks.js';
+import {
+  buildTrendsInsights,
+  SCENARIO_FRAMEWORK_ORDER,
+  scenarioDisplayName,
+  styleMixBarWidth,
+} from './lbd-frameworks.js';
+import { maybeShowAdminLink } from './admin-nav.js';
+import { openSessionPanel, closeSessionPanel } from './lbd-session-panel.js';
 
 const $ = (id) => document.getElementById(id);
 const trendsEl = $('trends');
 
 let signedIn = false;
+let allSessions = [];
+let filterScenario = 'all';
+let filterDays = 'all';
 const apiBase = lbdApiBase;
+
+const FILTER_KEY = 'lbd.trends.filters';
 
 function esc(s) {
   return String(s ?? '')
@@ -20,6 +32,40 @@ function fmtDate(ts) {
   if (!ts) return '—';
   const d = ts._seconds ? new Date(ts._seconds * 1000) : new Date(ts);
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function sessionMs(ts) {
+  if (!ts) return 0;
+  if (ts._seconds) return ts._seconds * 1000;
+  if (typeof ts.toMillis === 'function') return ts.toMillis();
+  return new Date(ts).getTime();
+}
+
+function loadFilters() {
+  try {
+    const raw = sessionStorage.getItem(FILTER_KEY);
+    if (!raw) return;
+    const { scenario, days } = JSON.parse(raw);
+    if (scenario) filterScenario = scenario;
+    if (days) filterDays = days;
+  } catch { /* ignore */ }
+}
+
+function saveFilters() {
+  sessionStorage.setItem(FILTER_KEY, JSON.stringify({ scenario: filterScenario, days: filterDays }));
+}
+
+function filterSessions(sessions) {
+  let list = [...sessions];
+  if (filterScenario !== 'all') {
+    list = list.filter((s) => s.scenarioId === filterScenario);
+  }
+  if (filterDays !== 'all') {
+    const days = Number(filterDays);
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    list = list.filter((s) => sessionMs(s.createdAt) >= cutoff);
+  }
+  return list;
 }
 
 function tagClass(name) {
@@ -50,7 +96,10 @@ function renderSparkline(sessions) {
       const fight = mix.find((r) => r.style === 'Fighter')?.pct || 0;
       return Math.max(0, Number(neg) - Number(fight));
     });
-  if (points.length < 2) return '<p class="lbd-dim">Need 2+ sessions for a trend line.</p>';
+  if (points.length < 1) return '<p class="lbd-dim">Complete a session to set your baseline.</p>';
+  if (points.length < 2) {
+    return `<p class="lbd-dim">Baseline set (${points[0]}). One more session unlocks the trend line.</p>`;
+  }
   const w = 280;
   const h = 56;
   const min = Math.min(...points, -20);
@@ -110,11 +159,42 @@ function renderBetterMoves(moves) {
     .join('')}</div>`;
 }
 
-function renderSessionRow(s) {
+function renderScenarioBreakdown(rows) {
+  if (!rows.length) return '<p class="lbd-dim">No scenarios yet.</p>';
+  return `<div class="lbd-scenario-grid">${rows
+    .map((row) => {
+      const top = row.avgStyleMix?.[0];
+      return `<article class="lbd-scenario-card">
+        <strong>${esc(row.title)}</strong>
+        <span class="lbd-dim">${row.count} session${row.count === 1 ? '' : 's'}${row.avgTurns != null ? ` · ~${row.avgTurns} turns` : ''}</span>
+        ${top ? `<span class="${tagClass(top.style)}">${esc(top.style)} ${top.pct}%</span>` : ''}
+        ${row.topOutcome ? `<p class="lbd-dim">${esc(row.topOutcome)}</p>` : ''}
+      </article>`;
+    })
+    .join('')}</div>`;
+}
+
+function openSessionAt(sessions, idx) {
+  const s = sessions[idx];
+  if (!s) return;
+  openSessionPanel(s, {
+    hasPrev: idx > 0,
+    hasNext: idx < sessions.length - 1,
+    onClose: () => {
+      const id = new URLSearchParams(location.search).get('session');
+      if (id) history.replaceState({}, '', '/lbd/trends');
+    },
+    onPrev: () => openSessionAt(sessions, idx - 1),
+    onNext: () => openSessionAt(sessions, idx + 1),
+  });
+  if (s.id) history.replaceState({}, '', `/lbd/trends?session=${encodeURIComponent(s.id)}`);
+}
+
+function renderSessionRow(s, idx) {
   const d = s.debrief || {};
   const top = (d.styleMix || [])[0];
   const watch = (d.watchouts || [])[0];
-  return `<article class="lbd-trend-row">
+  return `<article class="lbd-trend-row lbd-trend-row-btn" data-idx="${idx}" role="button" tabindex="0">
     <div class="lbd-trend-meta">
       <strong>${esc(scenarioDisplayName(s.scenarioId, s.scenarioTitle))}</strong>
       <span>${fmtDate(s.createdAt)} · ${s.exchangeCount || '?'} turns · ${s.variant === 'coach' ? 'coach mode' : `${s.parties || 1}:1`}</span>
@@ -125,9 +205,31 @@ function renderSessionRow(s) {
   </article>`;
 }
 
+function renderFilterBar() {
+  const scenarioOpts = SCENARIO_FRAMEWORK_ORDER.map(
+    (id) => `<option value="${id}"${filterScenario === id ? ' selected' : ''}>${esc(scenarioDisplayName(id))}</option>`,
+  ).join('');
+  return `<div class="lbd-filter-bar">
+    <label class="lbd-filter-label">Scenario
+      <select id="filter-scenario" class="lbd-filter-select">
+        <option value="all"${filterScenario === 'all' ? ' selected' : ''}>All scenarios</option>
+        ${scenarioOpts}
+      </select>
+    </label>
+    <label class="lbd-filter-label">Period
+      <select id="filter-days" class="lbd-filter-select">
+        <option value="all"${filterDays === 'all' ? ' selected' : ''}>All time</option>
+        <option value="30"${filterDays === '30' ? ' selected' : ''}>Last 30 days</option>
+        <option value="90"${filterDays === '90' ? ' selected' : ''}>Last 90 days</option>
+      </select>
+    </label>
+  </div>`;
+}
+
 function renderDashboard(sessions) {
-  const insights = buildTrendsInsights(sessions);
-  const recent = sessions.slice(0, 10);
+  const filtered = filterSessions(sessions);
+  const insights = buildTrendsInsights(filtered);
+  const recent = filtered.slice(0, 10);
 
   if (!sessions.length) {
     trendsEl.innerHTML = `
@@ -140,15 +242,36 @@ function renderDashboard(sessions) {
     return;
   }
 
+  if (!filtered.length) {
+    trendsEl.innerHTML = `
+      <div class="lbd-trends-top">
+        <a class="lbd-back" href="/lbd">← Simulator</a>
+        <h1 class="lbd-h1">Your speaking trends</h1>
+        ${renderFilterBar()}
+        <p class="lbd-hint">No sessions match these filters. <button class="lbd-link-btn" type="button" id="clear-filters">Clear filters</button></p>
+      </div>`;
+    bindFilters(sessions);
+    return;
+  }
+
   const speakerLabel = insights.primaryStyle
     ? `${insights.primaryStyle}${insights.secondaryStyle ? ` + ${insights.secondaryStyle}` : ''}`
     : 'Building your profile';
+
+  const coachNote =
+    insights.coachSessions > 0 ? ` · ${insights.coachSessions} coach-mode` : '';
+  const debriefGap =
+    insights.totalConversations > insights.debriefedCount
+      ? `<p class="lbd-dim">${insights.totalConversations - insights.debriefedCount} session(s) without debrief — tap Wrap up next time.</p>`
+      : '';
 
   trendsEl.innerHTML = `
     <div class="lbd-trends-top">
       <a class="lbd-back" href="/lbd">← Simulator</a>
       <h1 class="lbd-h1">Your speaking trends</h1>
-      <p class="lbd-sub">${insights.totalConversations} conversation${insights.totalConversations === 1 ? '' : 's'} · ${insights.totalTurns} turns spoken · ${insights.scenariosPlayed} scenario${insights.scenariosPlayed === 1 ? '' : 's'} practiced</p>
+      <p class="lbd-sub">${insights.totalConversations} conversation${insights.totalConversations === 1 ? '' : 's'} · ${insights.totalTurns} turns spoken · ${insights.scenariosPlayed} scenario${insights.scenariosPlayed === 1 ? '' : 's'} practiced${coachNote}</p>
+      ${renderFilterBar()}
+      ${debriefGap}
     </div>
 
     <div class="lbd-trends-hero">
@@ -169,6 +292,12 @@ function renderDashboard(sessions) {
       </section>
     </div>
 
+    ${insights.progress ? `<section class="lbd-panel lbd-trends-section">
+      <h2 class="lbd-h3">Your progress</h2>
+      <p class="lbd-profile-summary">${insights.progress.firstPrimaryStyle || '—'} → <strong>${esc(insights.progress.latestPrimaryStyle || '—')}</strong> · collaboration Δ ${insights.progress.collaborationDelta > 0 ? '+' : ''}${insights.progress.collaborationDelta}</p>
+      <p class="lbd-dim">${esc(insights.progress.note)}</p>
+    </section>` : ''}
+
     ${insights.profileSummary ? `<section class="lbd-panel lbd-trends-section lbd-profile-card">
       <h2 class="lbd-h3">Your speaker profile</h2>
       <p class="lbd-profile-summary">${esc(insights.profileSummary)}</p>
@@ -180,10 +309,15 @@ function renderDashboard(sessions) {
       </div>
     </section>` : ''}
 
+    <section class="lbd-panel lbd-trends-section">
+      <h2 class="lbd-h3">By scenario</h2>
+      ${renderScenarioBreakdown(insights.scenarioBreakdown)}
+    </section>
+
     <div class="lbd-trends-grid">
       <section class="lbd-panel">
         <h2 class="lbd-h3">Collaboration trend</h2>
-        ${renderSparkline(sessions)}
+        ${renderSparkline(filtered)}
       </section>
       <section class="lbd-panel">
         <h2 class="lbd-h3">Outcomes</h2>
@@ -217,10 +351,52 @@ function renderDashboard(sessions) {
 
     <section class="lbd-panel lbd-trend-history">
       <h2 class="lbd-h3">Session history</h2>
-      <div class="lbd-trend-list">${recent.map(renderSessionRow).join('')}</div>
+      <p class="lbd-dim">Click a session for the full debrief.</p>
+      <div class="lbd-trend-list">${recent.map((s, i) => renderSessionRow(s, i)).join('')}</div>
     </section>
 
     <p class="lbd-foot"><a class="lbd-link" href="/lbd">Run another scenario →</a></p>`;
+
+  bindFilters(sessions);
+  bindSessionRows(recent);
+
+  const sessionId = new URLSearchParams(location.search).get('session');
+  if (sessionId) {
+    const idx = filtered.findIndex((s) => s.id === sessionId);
+    if (idx >= 0) openSessionAt(filtered, idx);
+  }
+}
+
+function bindFilters(sessions) {
+  $('filter-scenario')?.addEventListener('change', (e) => {
+    filterScenario = e.target.value;
+    saveFilters();
+    renderDashboard(sessions);
+  });
+  $('filter-days')?.addEventListener('change', (e) => {
+    filterDays = e.target.value;
+    saveFilters();
+    renderDashboard(sessions);
+  });
+  $('clear-filters')?.addEventListener('click', () => {
+    filterScenario = 'all';
+    filterDays = 'all';
+    saveFilters();
+    renderDashboard(sessions);
+  });
+}
+
+function bindSessionRows(sessions) {
+  trendsEl.querySelectorAll('.lbd-trend-row-btn').forEach((row) => {
+    const open = () => openSessionAt(sessions, Number(row.dataset.idx));
+    row.addEventListener('click', open);
+    row.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        open();
+      }
+    });
+  });
 }
 
 function renderEmpty(msg) {
@@ -256,11 +432,13 @@ async function loadTrends() {
       const relaySessions = await loadTrendsFromRelay();
       if (relaySessions?.length) sessions = relaySessions;
     }
+    allSessions = sessions;
     renderDashboard(sessions);
   } catch {
     try {
       const relaySessions = await loadTrendsFromRelay();
       if (relaySessions) {
+        allSessions = relaySessions;
         renderDashboard(relaySessions);
         return;
       }
@@ -282,10 +460,13 @@ async function refreshCredits() {
   el.classList.toggle('is-empty', credits.remaining <= 0);
 }
 
+loadFilters();
 initAuthUi();
+maybeShowAdminLink();
 window.addEventListener('talk2me:auth-changed', (e) => {
   signedIn = Boolean(e.detail?.signedIn);
   refreshCredits();
+  maybeShowAdminLink();
   loadTrends();
 });
 refreshCredits();

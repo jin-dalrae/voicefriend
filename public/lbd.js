@@ -1,5 +1,6 @@
 import { getCurrentIdToken, initAuthUi } from './firebase-client.js';
 import { creditsLabel, fetchLbdCredits } from './lbd-credits.js';
+import { maybeShowAdminLink } from './admin-nav.js';
 import {
   SCENARIO_FRAMEWORKS,
   renderDebriefHtml,
@@ -726,11 +727,17 @@ function show(el) {
 
 // ---- boot --------------------------------------------------------------------
 initAuthUi();
+maybeShowAdminLink();
 window.addEventListener('talk2me:auth-changed', (e) => {
   signedIn = Boolean(e.detail?.signedIn);
   refreshCredits();
+  maybeShowAdminLink();
   if (ws?.readyState === WebSocket.OPEN) sendAuth();
   else connectVoice();
 });
 connectVoice();
-refreshCredits().then(renderPicker);
+refreshCredits().then(() => {
+  renderPicker();
+  const scenario = new URLSearchParams(location.search).get('scenario');
+  if (scenario && SCENARIOS.some((s) => s.id === scenario)) start(scenario);
+});
