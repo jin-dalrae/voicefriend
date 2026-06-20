@@ -32,6 +32,11 @@ const LOG_TRANSCRIPTS = process.env.LOG_TRANSCRIPTS === '1'; // set LOG_TRANSCRI
 const LOG_TO_FILE = process.env.LOG_TO_FILE !== '0'; // transcripts → data/transcript.jsonl (on by default)
 const REMEMBER = process.env.REMEMBER !== '0'; // remember the user across sessions (on by default)
 const PROFILE_MODEL = 'gemini-2.5-flash'; // cheap text model used to update the saved profile
+// If a coach turn produces no output for this long, treat it as stalled and
+// re-arm the client so the user isn't stranded on "Thinking…". A grounded web
+// search (googleSearch tool) can hang without ever sending turnComplete or an
+// error; the watchdog is the safety net for that and any silent disconnect.
+const TURN_STALL_MS = Number(process.env.TURN_STALL_MS) || 30000;
 
 // --- tiny .env loader (handles "KEY = value", quotes, comments) ----------------
 function loadEnv(path = '.env') {
@@ -95,6 +100,7 @@ class Conversation {
     this.currentIntent = 'natural';
     this.authed = false;
     this.sessionId = null;
+    this.turnWatchdog = null; // re-arms the client if a coach turn stalls
 
     if (!REQUIRE_FIREBASE_AUTH) {
       // Dev/local: anonymous, local-file memory, open sessions right away.
@@ -136,6 +142,28 @@ class Conversation {
 
   send(obj) {
     if (this.browser.readyState === 1) this.browser.send(JSON.stringify(obj));
+  }
+
+  // Restart the stall timer. Called when the user's turn is committed and again
+  // on every chunk of model output, so a long-but-active reply never trips it —
+  // only true silence (e.g. a hung web search) does.
+  bumpTurnWatchdog() {
+    this.clearTurnWatchdog();
+    this.turnWatchdog = setTimeout(() => {
+      this.turnWatchdog = null;
+      if (this.turnAborted) return;
+      console.warn(`  ⚠ ${this.responder} turn stalled (${TURN_STALL_MS}ms, no output) — re-arming client`);
+      this.userTurnText = '';
+      this.respTurnText = '';
+      this.send({ type: 'error', message: "Sorry — that one didn't go through. Tap to talk and try again." });
+    }, TURN_STALL_MS);
+  }
+
+  clearTurnWatchdog() {
+    if (this.turnWatchdog) {
+      clearTimeout(this.turnWatchdog);
+      this.turnWatchdog = null;
+    }
   }
 
   async connectAll() {
@@ -182,10 +210,24 @@ class Conversation {
   }
 
   onModelMessage(name, msg) {
+    // The Live API sends session-control signals (goAway before a disconnect,
+    // toolCall, etc.) as top-level fields, not inside serverContent. Silently
+    // dropping these made a goAway indistinguishable from silence — it stranded
+    // the client. Surface it so the user can recover instead of waiting forever.
+    if (msg.goAway) {
+      console.warn(`  ⚠ [${name}] Live API goAway (timeLeft: ${msg.goAway.timeLeft || 'n/a'})`);
+      if (name === this.responder) {
+        this.clearTurnWatchdog();
+        this.send({ type: 'error', message: 'The voice session dropped — tap to talk to continue.' });
+      }
+      return;
+    }
     const sc = msg.serverContent;
     if (!sc) return;
     // Only the chosen responder is ever fed audio, but guard anyway.
     if (name !== this.responder) return;
+    // Real model output — the turn is alive, so keep the stall watchdog fed.
+    this.bumpTurnWatchdog();
 
     if (sc.inputTranscription?.text) {
       this.userTurnText = (this.userTurnText || '') + sc.inputTranscription.text;
@@ -206,6 +248,7 @@ class Conversation {
     }
     if (sc.interrupted) this.send({ type: 'interrupted' });
     if (sc.turnComplete) {
+      this.clearTurnWatchdog();
       // Conflict simulator: keep the exchange in memory for the debrief, but
       // never persist it to the user's Firestore profile/transcript.
       if (this.mode === 'lbd' && this.speakingDebrief) {
@@ -664,6 +707,8 @@ class Conversation {
         }
         const ms = Math.round((this.turnBytes / 2 / 16000) * 1000);
         console.log(`  ■ ${this.responder} turn: received ${this.turnChunks} chunks, ~${ms}ms of audio`);
+        // Watch for a model turn that never produces output (e.g. a hung web search).
+        this.bumpTurnWatchdog();
         break;
       }
       case 'stop_speaking': {
@@ -674,6 +719,7 @@ class Conversation {
           break;
         }
         this.turnAborted = true;
+        this.clearTurnWatchdog();
         this.userTurnText = '';
         this.respTurnText = '';
         this.send({ type: 'interrupted' });
@@ -810,6 +856,7 @@ class Conversation {
   }
 
   close() {
+    this.clearTurnWatchdog();
     this.persistProfile(); // fire-and-forget: save what we learned this session
     this.closeSessions();
   }
