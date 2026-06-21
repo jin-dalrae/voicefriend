@@ -265,7 +265,27 @@ button {
   overflow-wrap: anywhere;
 }
 
-.auth-actions {
+.welcome-auth-bar {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.welcome-admin-link {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--faint);
+  text-decoration: none;
+}
+
+.welcome-admin-link:hover {
+  color: var(--text);
+}
+
+#account-menu {
   width: 100%;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -274,13 +294,16 @@ button {
   align-items: center;
 }
 
-.auth-actions .auth-status {
+#account-menu:has(.account-avatar-btn) {
+  width: auto;
+  display: block;
+}
+
+#account-menu .auth-status {
   grid-column: 1 / -1;
 }
 
-.auth-actions .account-avatar-btn {
-  grid-column: 1 / -1;
-  justify-self: center;
+#account-menu .account-avatar-btn {
   width: 44px;
   height: 44px;
   border-radius: 50%;
@@ -292,7 +315,7 @@ button {
   cursor: pointer;
 }
 
-.auth-actions .account-menu-panel {
+#account-menu .account-menu-panel {
   position: absolute;
   top: calc(100% + 8px);
   left: 50%;
@@ -306,7 +329,7 @@ button {
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
 }
 
-.auth-actions .account-menu-label {
+#account-menu .account-menu-label {
   display: block;
   font-size: 10px;
   letter-spacing: 0.06em;
@@ -314,19 +337,19 @@ button {
   color: var(--faint);
 }
 
-.auth-actions .account-menu-name {
+#account-menu .account-menu-name {
   margin: 6px 0 2px;
   font-size: 14px;
 }
 
-.auth-actions .account-menu-email {
+#account-menu .account-menu-email {
   margin: 4px 0 12px;
   font-size: 12px;
   color: var(--faint);
   word-break: break-all;
 }
 
-.auth-actions .account-menu-panel .secondary-action {
+#account-menu .account-menu-panel .secondary-action {
   width: 100%;
 }
 

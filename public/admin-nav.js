@@ -1,7 +1,7 @@
 import { getCurrentIdToken } from './firebase-client.js';
 import { lbdApiBase } from './lbd-credits.js';
 
-export async function maybeShowAdminLink(containerSelector = '.lbd-auth-actions, .auth-actions') {
+export async function maybeShowAdminLink(containerSelector = '.lbd-auth-actions, .welcome-auth-bar') {
   const containers = document.querySelectorAll(containerSelector);
   if (!containers.length) return;
 
@@ -22,8 +22,8 @@ export async function maybeShowAdminLink(containerSelector = '.lbd-auth-actions,
     for (const container of containers) {
       if (container.querySelector('[data-admin-link]')) continue;
       const anchor = document.createElement('a');
-      anchor.className = container.classList.contains('auth-actions')
-        ? 'secondary-action'
+      anchor.className = container.classList.contains('welcome-auth-bar')
+        ? 'welcome-admin-link'
         : 'lbd-mini-btn lbd-nav-link';
       anchor.href = '/admin';
       anchor.dataset.adminLink = '1';

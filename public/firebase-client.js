@@ -174,7 +174,7 @@ async function ensureDisplayName(user) {
 }
 
 function isWelcomeAuth() {
-  return menuRoot?.classList.contains('auth-actions');
+  return Boolean(menuRoot?.closest('.auth-panel, #welcome'));
 }
 
 function authBtnClass() {
