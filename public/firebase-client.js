@@ -35,6 +35,7 @@ analyticsSupported()
 
 let currentUser = null;
 let menuRoot; // welcome sign-in buttons (#account-menu)
+let welcomeAccountMenuRoot; // welcome account menu (#welcome-account-menu)
 let sessionMenuRoot; // in-call account menu (#call-account-menu)
 let activeMenuRoot; // whichever menu receives clicks / dropdown state
 let menuOpen = false;
@@ -75,7 +76,10 @@ function bindMenuRoot(root) {
     if (!act) return;
     if (act === 'signin') return doGoogleSignIn();
     if (act === 'emaillink') return doEmailLinkSignIn();
-    if (act === 'toggle') return toggleMenu();
+    if (act === 'toggle') {
+      activeMenuRoot = root;
+      return toggleMenu();
+    }
     if (act === 'signout') {
       closeMenu();
       signOut(auth).catch((err) => setAuthStatus(err.message));
@@ -85,10 +89,12 @@ function bindMenuRoot(root) {
 
 export function initAuthUi() {
   menuRoot = document.getElementById('account-menu');
+  welcomeAccountMenuRoot = document.getElementById('welcome-account-menu');
   sessionMenuRoot = document.getElementById('call-account-menu');
-  if (!menuRoot && !sessionMenuRoot) return; // page has no account menu (e.g. /about)
+  if (!menuRoot && !welcomeAccountMenuRoot && !sessionMenuRoot) return;
 
   bindMenuRoot(menuRoot);
+  bindMenuRoot(welcomeAccountMenuRoot);
   bindMenuRoot(sessionMenuRoot);
 
   // Close the dropdown on outside click or Escape.
@@ -186,6 +192,10 @@ function isWelcomeSignInRoot(root) {
   return Boolean(root?.closest('#welcome-auth, .auth-panel, #welcome'));
 }
 
+function isWelcomeAccountRoot(root) {
+  return Boolean(root?.closest('#welcome-account, .welcome-account'));
+}
+
 function isSessionRoot(root) {
   return Boolean(root?.closest('.call-header-actions, .call-account'));
 }
@@ -211,6 +221,8 @@ function renderSignedOut(root) {
 
 function renderSignedIn(root) {
   if (!root) return;
+  if (isWelcomeAccountRoot(root)) return renderWelcomeSignedIn(root);
+
   const btn = authBtnClass(root);
   const label = currentUser.displayName || currentUser.email || 'Account';
   const initial = (label.trim()[0] || '?').toUpperCase();
@@ -230,28 +242,34 @@ function renderSignedIn(root) {
     </div>`;
 }
 
+function renderWelcomeSignedIn(root) {
+  root.innerHTML = `
+    <button class="welcome-account-btn" data-act="toggle" type="button"
+      aria-haspopup="true" aria-expanded="false">Account</button>
+    <div class="welcome-account-panel" data-menu hidden>
+      <span class="welcome-account-label">Signed in as</span>
+      ${currentUser.displayName ? `<p class="welcome-account-name">${escAttr(currentUser.displayName)}</p>` : ''}
+      <p class="welcome-account-email">${escAttr(currentUser.email || '')}</p>
+      <button class="welcome-signout-btn" data-act="signout" type="button">Sign out</button>
+    </div>`;
+}
+
 function renderAuthState() {
-  if (!menuRoot && !sessionMenuRoot) return;
+  if (!menuRoot && !welcomeAccountMenuRoot && !sessionMenuRoot) return;
   menuOpen = false;
 
   if (!currentUser) {
     renderSignedOut(menuRoot);
+    if (welcomeAccountMenuRoot) welcomeAccountMenuRoot.innerHTML = '';
     if (sessionMenuRoot) sessionMenuRoot.innerHTML = '';
     activeMenuRoot = menuRoot;
     return;
   }
 
-  // Signed in: welcome stays clean — account lives on session surfaces only.
   if (menuRoot) menuRoot.innerHTML = '';
-  if (sessionMenuRoot) {
-    renderSignedIn(sessionMenuRoot);
-    activeMenuRoot = sessionMenuRoot;
-  } else if (menuRoot && !isWelcomeSignInRoot(menuRoot)) {
-    renderSignedIn(menuRoot);
-    activeMenuRoot = menuRoot;
-  } else {
-    activeMenuRoot = null;
-  }
+  if (welcomeAccountMenuRoot) renderWelcomeSignedIn(welcomeAccountMenuRoot);
+  if (sessionMenuRoot) renderSignedIn(sessionMenuRoot);
+  activeMenuRoot = welcomeAccountMenuRoot || sessionMenuRoot || menuRoot;
 }
 
 function setAuthStatus(message) {

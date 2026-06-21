@@ -110,6 +110,7 @@ const backBtn = document.getElementById('back');
 const nameInline = document.getElementById('name-inline');
 const welcomeHint = document.getElementById('welcome-hint');
 const welcomeAuthEl = document.getElementById('welcome-auth');
+const welcomeAccountEl = document.getElementById('welcome-account');
 
 let currentSpeaker = null;
 let userBubble = null;
@@ -127,6 +128,7 @@ syncAdminNav();
 function updateGate() {
   if (started) return;
   if (welcomeAuthEl) welcomeAuthEl.hidden = signedIn;
+  if (welcomeAccountEl) welcomeAccountEl.hidden = !signedIn;
   if (!signedIn) {
     startBtn.hidden = true;
     if (welcomeHint) welcomeHint.textContent = 'Sign in above to start practicing.';
